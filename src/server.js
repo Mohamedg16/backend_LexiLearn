@@ -86,6 +86,30 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Test endpoint to verify API routing
+app.get('/api/test', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'API routing is working!',
+        environment: process.env.NODE_ENV,
+        availableRoutes: {
+            auth: '/api/auth/*',
+            students: '/api/students/*',
+            teachers: '/api/teachers/*',
+            admin: '/api/admin/*',
+            modules: '/api/modules/*',
+            lessons: '/api/lessons/*',
+            resources: '/api/resources/*',
+            videos: '/api/videos/*',
+            aiChat: '/api/ai-chat/*',
+            upload: '/api/upload/*',
+            payments: '/api/payments/*',
+            lexilearn: '/api/lexilearn/*',
+            contact: '/api/contact/*'
+        }
+    });
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
@@ -101,12 +125,28 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/lexilearn', lexilearnRoutes);
 app.use('/api/contact', contactRoutes);
 
+// Log all registered routes (helpful for debugging)
+console.log('✅ All API routes mounted successfully');
+console.log('📋 Available endpoints:');
+console.log('   - GET  /health');
+console.log('   - GET  /api/test');
+console.log('   - POST /api/auth/login');
+console.log('   - POST /api/auth/register');
+console.log('   - GET  /api/modules');
+console.log('   - GET  /api/lessons');
+console.log('   - And more...');
+
+
 
 // 404 handler
 app.use((req, res) => {
+    console.log(`❌ 404 - Route not found: ${req.method} ${req.url}`);
     res.status(404).json({
         success: false,
-        message: 'Route not found'
+        message: 'Route not found',
+        requestedPath: req.url,
+        method: req.method,
+        hint: 'Check /api/test for available routes'
     });
 });
 
