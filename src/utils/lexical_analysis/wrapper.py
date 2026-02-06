@@ -1,9 +1,15 @@
 import sys
 import json
 import os
-import spacy
 import re
 import io
+
+try:
+    import spacy
+except ImportError:
+    # If spacy is missing, print a JSON error and exit immediately
+    print(json.dumps({"error": "Module 'spacy' not found. Please install it."}))
+    sys.exit(0)
 
 # Force UTF-8 for communication with Node.js
 if sys.version_info >= (3, 7):

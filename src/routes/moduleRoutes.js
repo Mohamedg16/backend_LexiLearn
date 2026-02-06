@@ -4,13 +4,14 @@ const moduleController = require('../controllers/moduleController');
 const authenticate = require('../middleware/auth');
 const authorize = require('../middleware/roleGuard');
 
-// Public routes (no authentication required)
-router.get('/', moduleController.getAllModules); // Featured lessons on homepage
-router.get('/:id', moduleController.getModuleById); // View module details
-router.get('/:id/lessons', moduleController.getModuleLessons); // View lessons in a module
+// All module routes require authentication
+router.use(authenticate);
 
-// Protected routes (require authentication)
-router.get('/category/:category', authenticate, moduleController.getModulesByCategory);
-router.get('/level/:level', authenticate, moduleController.getModulesByLevel);
+// Read access (All authenticated users)
+router.get('/', moduleController.getAllModules);
+router.get('/:id', moduleController.getModuleById);
+router.get('/:id/lessons', moduleController.getModuleLessons);
+router.get('/category/:category', moduleController.getModulesByCategory);
+router.get('/level/:level', moduleController.getModulesByLevel);
 
 module.exports = router;
