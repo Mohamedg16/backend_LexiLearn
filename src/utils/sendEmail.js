@@ -1,29 +1,10 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// Create transporter
-const createTransporter = () => {
-  const config = {
-    host: process.env.EMAIL_HOST,
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: process.env.EMAIL_PORT == 465, // true for 465, false for other ports
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      rejectUnauthorized: false // Helps with some cloud providers
-    },
-    connectionTimeout: 15000, // 15 seconds
-    greetingTimeout: 15000,
-    socketTimeout: 30000
-  };
-
-  console.log(`📧 Email Service Config: Host=${config.host}, Port=${config.port}, User=${config.auth.user}, Secure=${config.secure}`);
-  return nodemailer.createTransport(config);
-};
+// Set API Key from environment
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 /**
- * Send email
+ * Send email using SendGrid HTTP API
  * @param {Object} options - Email options
  * @param {String} options.to - Recipient email
  * @param {String} options.subject - Email subject
@@ -32,28 +13,34 @@ const createTransporter = () => {
  */
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const transporter = createTransporter();
-
-    const mailOptions = {
-      from: `"LexiLearn" <${process.env.EMAIL_USER}>`,
+    const msg = {
       to,
+      from: {
+        email: process.env.EMAIL_USER, // Must be verified in SendGrid as a Single Sender or Domain
+        name: 'LexiLearn'
+      },
       subject,
       html
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent successfully to ${to}. MessageID: ${info.messageId}`);
-    return true;
+    console.log(`📧 Attempting to send SendGrid email to ${to}...`);
+    const [response] = await sgMail.send(msg);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      console.log(`✅ SendGrid email sent successfully to ${to}. Status: ${response.statusCode}`);
+      return true;
+    }
+
+    console.error(`❌ SendGrid returned unexpected status: ${response.statusCode}`);
+    return false;
   } catch (error) {
-    console.error(`❌ Error sending email to ${to}:`, error.message);
-    if (error.code) console.error(`   Error Code: ${error.code}`);
+    console.error(`❌ SendGrid Error for ${to}:`, error.response ? JSON.stringify(error.response.body) : error.message);
     return false;
   }
 };
 
 /**
  * Send welcome email
- * @param {Object} user - User object
  */
 const sendWelcomeEmail = async (user) => {
   const html = `
@@ -77,8 +64,6 @@ const sendWelcomeEmail = async (user) => {
 
 /**
  * Send 6-digit OTP for email verification (Registration)
- * @param {Object} user - User object
- * @param {String} otp - 6-digit OTP code
  */
 const sendRegistrationOTPEmail = async (user, otp) => {
   const html = `
@@ -113,8 +98,6 @@ const sendRegistrationOTPEmail = async (user, otp) => {
 
 /**
  * Send 6-digit OTP for password reset
- * @param {Object} user - User object
- * @param {String} otp - 6-digit OTP code
  */
 const sendOTPEmail = async (user, otp) => {
   const html = `
@@ -146,4 +129,3 @@ module.exports = {
   sendRegistrationOTPEmail,
   sendOTPEmail
 };
-
