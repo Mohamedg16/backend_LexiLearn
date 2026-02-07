@@ -66,21 +66,21 @@ const registerUser = async (userData) => {
 
 
         if (!emailSent) {
-            console.log("3. Error: Email failed to send");
-            // Database First: Cleanup if email fails
+            console.log("3. ❌ Email failed to send. Cleaning up temporary DB records...");
+            // Cleanup incomplete registration
             await User.findByIdAndDelete(user._id);
             if (role === 'student') await Student.deleteOne({ userId: user._id });
             else if (role === 'teacher') await Teacher.deleteOne({ userId: user._id });
 
-            throw new Error('Email service error. Please check your credentials or try again later.');
+            throw new Error('Email service is currently unavailable. Please try again later or contact support.');
         }
 
-        console.log("3. Registration Success (Email bypassed)");
+        console.log(`4. ✅ Registration complete for ${user.email}. OTP sent.`);
         return {
             user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role }
         };
     } catch (error) {
-        console.log("3. Success/Fail error:", error.message);
+        console.error("❌ Registration Error:", error.message);
         throw error;
     }
 };

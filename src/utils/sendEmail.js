@@ -9,8 +9,15 @@ const createTransporter = () => {
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
-    }
+    },
+    tls: {
+      rejectUnauthorized: false // Helps with some cloud providers
+    },
+    connectionTimeout: 15000, // 15 seconds
+    greetingTimeout: 15000,
+    socketTimeout: 30000
   };
+
   console.log(`📧 Email Service Config: Host=${config.host}, Port=${config.port}, User=${config.auth.user}, Secure=${config.secure}`);
   return nodemailer.createTransport(config);
 };
@@ -35,11 +42,11 @@ const sendEmail = async ({ to, subject, html }) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully");
-    console.log(`✅ Message ID: ${info.messageId}`);
+    console.log(`✅ Email sent successfully to ${to}. MessageID: ${info.messageId}`);
     return true;
   } catch (error) {
-    console.error('❌ Error sending email:', error);
+    console.error(`❌ Error sending email to ${to}:`, error.message);
+    if (error.code) console.error(`   Error Code: ${error.code}`);
     return false;
   }
 };
