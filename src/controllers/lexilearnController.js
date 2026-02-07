@@ -28,7 +28,7 @@ const assemblyHeaders = {
 function executePythonBridge(data) {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../utils/lexical_analysis/wrapper.py');
-        const pythonProcess = spawn('python', [scriptPath]);
+        const pythonProcess = spawn('python3', [scriptPath]);
 
         let stdoutData = '';
         let stderrData = '';
