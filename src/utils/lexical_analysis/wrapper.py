@@ -19,6 +19,7 @@ else:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
+from lexical_diversity import lex_div as ld
 
 # Academic Word List (AWL) - Tier 2 and Tier 3 samples
 ACADEMIC_WORDS = {
@@ -95,14 +96,13 @@ def analyze_text(input_data, suggested_words=None):
         density = calculate_density(doc)
 
         # Calculate Lexical Diversity (MTLD)
-        lexdiv_obj = ld.lexdiv()
         try:
             # MTLD normalized for length
             if len(tokens_text) < 10:
                 # For very short texts, use a dampened TTR
                 mtld_score = (len(set(tokens_text)) / (len(tokens_text) + 5)) * 100
             else:
-                mtld_score = lexdiv_obj.MTLD(tokens_text)
+                mtld_score = ld.mtld(tokens_text)
         except Exception:
             mtld_score = (len(set(tokens_text)) / len(tokens_text) * 100) if tokens_text else 0
 
