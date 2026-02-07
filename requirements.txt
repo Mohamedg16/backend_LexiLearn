@@ -1,7 +1,5 @@
 --only-binary=:all:
 spacy==3.8.11
-pylats
-taaled==0.32
 lexical-diversity
 plotnine
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
