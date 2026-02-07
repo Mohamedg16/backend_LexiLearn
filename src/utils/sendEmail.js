@@ -2,15 +2,17 @@ const nodemailer = require('nodemailer');
 
 // Create transporter
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  const config = {
     host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
+    port: parseInt(process.env.EMAIL_PORT) || 587,
     secure: process.env.EMAIL_PORT == 465, // true for 465, false for other ports
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
     }
-  });
+  };
+  console.log(`📧 Email Service Config: Host=${config.host}, Port=${config.port}, User=${config.auth.user}, Secure=${config.secure}`);
+  return nodemailer.createTransport(config);
 };
 
 /**
