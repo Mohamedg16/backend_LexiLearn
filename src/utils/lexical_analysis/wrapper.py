@@ -19,7 +19,11 @@ else:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
-from lexical_diversity import lex_div as ld
+try:
+    from lexical_diversity import lex_div as ld
+except ImportError:
+    ld = None
+    sys.stderr.write("ImportError: 'lexical_diversity' module not found. Please install it.\n")
 
 # Academic Word List (AWL) - Tier 2 and Tier 3 samples
 ACADEMIC_WORDS = {
