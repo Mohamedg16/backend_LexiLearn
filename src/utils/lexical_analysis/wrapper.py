@@ -19,7 +19,6 @@ else:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
-from taaled import ld
 
 # Academic Word List (AWL) - Tier 2 and Tier 3 samples
 ACADEMIC_WORDS = {
