@@ -23,9 +23,13 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const lexilearnRoutes = require('./routes/lexilearnRoutes');
 const contactRoutes = require('./routes/contactRoutes');
+const taskRoutes = require('./routes/taskRoutes');
 
 
 const app = express();
+
+// Trust Proxy for Render
+app.set('trust proxy', 1);
 
 // Connect to MongoDB
 connectDB();
@@ -105,7 +109,8 @@ app.get('/api/test', (req, res) => {
             upload: '/api/upload/*',
             payments: '/api/payments/*',
             lexilearn: '/api/lexilearn/*',
-            contact: '/api/contact/*'
+            contact: '/api/contact/*',
+            tasks: '/api/tasks/*'
         }
     });
 });
@@ -124,6 +129,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/lexilearn', lexilearnRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/tasks', taskRoutes);
 
 // Log all registered routes (helpful for debugging)
 console.log('✅ All API routes mounted successfully');
