@@ -36,9 +36,11 @@ const registerUser = async (userData) => {
             throw new Error('Email already registered');
         }
 
-        // 3. Generate 6-digit OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        console.log(`🔑 DEBUG: Generated OTP for ${email}: ${otp}`); // Log OTP for debugging/fallback
+        const otpExpiresLog = otpExpires;
 
         console.log("DEBUG: Creating user in DB...");
         // 4. Create user
@@ -66,18 +68,15 @@ const registerUser = async (userData) => {
 
 
         if (!emailSent) {
-            console.log("3. ❌ Email failed to send. Cleaning up temporary DB records...");
-            // Cleanup incomplete registration
-            await User.findByIdAndDelete(user._id);
-            if (role === 'student') await Student.deleteOne({ userId: user._id });
-            else if (role === 'teacher') await Teacher.deleteOne({ userId: user._id });
-
-            throw new Error('Email service is currently unavailable. Please try again later or contact support.');
+            console.warn("⚠️ 3. Email failed to send, but proceeding anyway. User can find OTP in logs.");
+            // We NO LONGER delete the user here. 
+            // This allows the user to finish registration by getting the OTP from the Render logs.
         }
 
-        console.log(`4. ✅ Registration complete for ${user.email}. OTP sent.`);
+        console.log(`4. ✅ Registration process finished for ${user.email}.`);
         return {
-            user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role }
+            user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role },
+            emailError: !emailSent // Optional flag
         };
     } catch (error) {
         console.error("❌ Registration Error:", error.message);
@@ -155,11 +154,15 @@ const forgotPassword = async (email) => {
 
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log(`🔑 DEBUG: Generated Password Reset OTP for ${email}: ${otp}`);
     user.resetPasswordOTP = otp;
     user.resetPasswordOTPExpire = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
     await user.save();
 
-    await sendOTPEmail(user, otp);
+    const emailSent = await sendOTPEmail(user, otp);
+    if (!emailSent) {
+        console.warn(`⚠️ Email failed for password reset of ${email}, OTP is available in logs.`);
+    }
     return true;
 };
 
