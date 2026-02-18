@@ -8,7 +8,18 @@ const { verifyToken } = require('../config/jwt');
 const register = async (req, res, next) => {
     try {
         const result = await authService.registerUser(req.body);
-        return successResponse(res, 201, 'Registration initiated. Please verify your email.', result);
+
+        res.cookie('refreshToken', result.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        return successResponse(res, 201, 'Registration successful.', {
+            user: result.user,
+            accessToken: result.accessToken
+        });
     } catch (error) {
         next(error);
     }

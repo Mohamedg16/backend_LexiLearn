@@ -36,22 +36,14 @@ const registerUser = async (userData) => {
             throw new Error('Email already registered');
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-        console.log(`🔑 DEBUG: Generated OTP for ${email}: ${otp}`); // Log OTP for debugging/fallback
-        const otpExpiresLog = otpExpires;
-
         console.log("DEBUG: Creating user in DB...");
-        // 4. Create user
+        // 4. Create user - Verification disabled (isEmailVerified: true)
         const user = await User.create({
             fullName,
             email,
             password,
             role,
-            isEmailVerified: false,
-            emailVerificationToken: otp,
-            emailVerificationExpires: otpExpires
+            isEmailVerified: true
         });
 
         // 5. Create profile
@@ -62,21 +54,22 @@ const registerUser = async (userData) => {
         }
         console.log("DEBUG: User and Profile created successfully");
 
-        // 6. Send verification email
-        console.log("2. Attempting to send real email...");
-        const emailSent = await sendRegistrationOTPEmail(user, otp);
-
-
-        if (!emailSent) {
-            console.warn("⚠️ 3. Email failed to send, but proceeding anyway. User can find OTP in logs.");
-            // We NO LONGER delete the user here. 
-            // This allows the user to finish registration by getting the OTP from the Render logs.
-        }
+        // 6. Generate tokens for immediate login
+        const tokens = generateTokens(user._id, user.role);
+        user.lastLogin = new Date();
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
 
         console.log(`4. ✅ Registration process finished for ${user.email}.`);
         return {
-            user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role },
-            emailError: !emailSent // Optional flag
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+                profilePicture: user.getProfilePictureUrl()
+            },
+            ...tokens
         };
     } catch (error) {
         console.error("❌ Registration Error:", error.message);
@@ -129,7 +122,7 @@ const loginUser = async (email, password) => {
 
     if (!user) throw new Error('Invalid email or password');
     if (!user.isActive) throw new Error('Account is suspended.');
-    if (!user.isEmailVerified) throw new Error('Please verify your email to log in.');
+    // Check for email verification REMOVED as requested
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) throw new Error('Invalid email or password');
