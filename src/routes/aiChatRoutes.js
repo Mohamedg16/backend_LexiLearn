@@ -10,8 +10,11 @@ const { chatMessageValidation } = require('../utils/validators');
 // All AI chat routes require authentication
 router.use(authenticate);
 
+const { uploadSingle } = require('../middleware/upload');
+
 // Student routes
 router.post('/send', authorize('student'), aiChatController.sendMessage);
+router.post('/send-vocal', authorize('student'), uploadSingle('audio'), aiChatController.sendVocalMessage);
 router.get('/conversations', authorize('student'), aiChatController.getConversations);
 
 // Shared/Admin/Teacher routes
