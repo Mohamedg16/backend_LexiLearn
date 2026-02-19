@@ -25,8 +25,7 @@ const assemblyHeaders = {
 };
 
 const scaffoldingHeaders = {
-    authorization: ASSEMBLY_API_KEY_SCAFFOLDING || ASSEMBLY_API_KEY,
-    "content-type": "application/json"
+    authorization: ASSEMBLY_API_KEY_SCAFFOLDING || ASSEMBLY_API_KEY
 };
 
 /**
@@ -220,42 +219,54 @@ const chatTutorVocal = async (req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     const filePath = req.file?.path;
     try {
-        console.log("🎙️ Vocal Chat Request - Body:", req.body);
-
         if (!req.file) {
-            console.error("❌ Multer Error: No file found in request.");
-            return res.status(400).json({ success: false, message: 'Audio stream was empty or interrupted.' });
+            return res.status(400).json({ success: false, message: 'Audio stream was empty.' });
         }
 
         const { topic, history = "[]" } = req.body;
-        console.log(`📁 File saved at: ${filePath}, size: ${req.file.size} bytes`);
 
-        // 1. Transcribe with AssemblyAI
-        console.log("--- 🎙️ Connecting to AssemblyAI (Scaffolding Service) ---");
-        const audioData = await fsExtra.readFile(filePath);
-        const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioData, {
-            headers: { ...scaffoldingHeaders, "content-type": "application/octet-stream" }
+        // --- STEP 1: Upload to AssemblyAI ---
+        console.log("--- 🎙️ Uploading to AssemblyAI ---");
+        const audioBuffer = fs.readFileSync(filePath);
+        const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioBuffer, {
+            headers: {
+                ...scaffoldingHeaders,
+                "content-type": "application/octet-stream"
+            }
         });
-        const assemblyAudioUrl = uploadResponse.data.upload_url;
 
+        const uploadUrl = uploadResponse.data.upload_url;
+        if (!uploadUrl) throw new Error("AssemblyAI upload failed - no URL returned.");
+
+        // --- STEP 2: Create Transcription ---
+        console.log("--- 📝 Creating Transcription ---");
         const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
-            audio_url: assemblyAudioUrl,
+            audio_url: uploadUrl,
             language_code: "en"
-        }, { headers: scaffoldingHeaders });
+        }, {
+            headers: {
+                ...scaffoldingHeaders,
+                "content-type": "application/json"
+            }
+        });
 
         const transcriptId = transcriptReq.data.id;
         let transcribedText = "";
 
+        // --- STEP 3: Polling ---
+        console.log(`--- ⏳ Polling Transcription: ${transcriptId} ---`);
         let pollingAttempts = 0;
         while (pollingAttempts < 30) {
-            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, { headers: scaffoldingHeaders });
-            const status = pollingRes.data.status;
+            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, {
+                headers: scaffoldingHeaders
+            });
+            const { status, text, error: assemblyError } = pollingRes.data;
 
             if (status === "completed") {
-                transcribedText = pollingRes.data.text;
+                transcribedText = text;
                 break;
             } else if (status === "error") {
-                throw new Error(`AssemblyAI Transcription failed: ${pollingRes.data.error}`);
+                throw new Error(`AssemblyAI Error: ${assemblyError}`);
             }
 
             await new Promise(r => setTimeout(r, 1000));
@@ -263,10 +274,10 @@ const chatTutorVocal = async (req, res, next) => {
         }
 
         if (!transcribedText) {
-            throw new Error("No speech detected. Please speak closer to the microphone.");
+            throw new Error("No speech detected. Please speak closer to the mic.");
         }
 
-        console.log(`✅ AssemblyAI Decoded: "${transcribedText}"`);
+        console.log(`✅ Transcription Complete: "${transcribedText}"`);
 
         // 2. Process with AI Logic
         const aiResponse = await processTutorLogic(transcribedText, topic, history, true);
@@ -288,7 +299,7 @@ const chatTutorVocal = async (req, res, next) => {
             audioUrl: audioUrl
         });
     } catch (error) {
-        console.error("❌ chatTutorVocal Error:", error.message);
+        console.error("❌ chatTutorVocal Error:", error.response?.data || error.message);
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
         return res.status(500).json({
             success: false,
