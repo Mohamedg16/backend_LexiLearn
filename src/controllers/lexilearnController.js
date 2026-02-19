@@ -14,7 +14,7 @@ const BYTEZ_API_KEY = process.env.BYTEZ_API_KEY;
 const bytezSdk = new Bytez(BYTEZ_API_KEY);
 const bytezModel = bytezSdk.model("openai/gpt-4o");
 // AssemblyAI Config
-const ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY || "bab74404f4c349909532f5763de74834";
+const ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 const ASSEMBLY_BASE_URL = "https://api.assemblyai.com/v2";
 
 const assemblyHeaders = {
@@ -114,19 +114,22 @@ const processTutorLogic = async (message, topic, history = []) => {
         sanitizedHistory = [];
     }
 
-    const systemPrompt = `You are an 'Empathetic Socratic Tutor' helping a student brainstorm for: "${topic}".
+    const systemPrompt = `You are an 'Empathetic Socratic Tutor' for LexiLearn.
+Topic: "${topic}".
 
-YOUR CORE MISSION:
-1. Conversational AI: Engage in a free-flowing, natural academic conversation.
-2. Mistake Correction (MANDATORY):
-   - If the student makes a LINGUISTIC mistake (grammar, syntax, spelling):
-     a) Politely point it out.
-     b) Explain WHY it is incorrect (the rule).
-     c) Provide the CORRECT version.
-   - If they make a CONCEPTUAL mistake:
-     Don't give the answer. Use the Socratic method—ask a leading question to help them realize the error.
-3. Vocabulary: Encourage advanced synonyms.
-4. Voice/Tone: Supportive, peer-like, and encouraging.`;
+STRICT CORRECTION DISCIPLINE:
+- MISTAKE DETECTION: You MUST monitor every message for LINGUISTIC (grammar/spelling) and CONCEPTUAL mistakes.
+- HOW TO CORRECT LINGUISTIC ERRORS:
+  1. Polite Correction: Gently mention the error.
+  2. Explanation: Explain the specific rule or why it was wrong.
+  3. Correct Form: Provide the exact corrected version.
+- HOW TO CORRECT CONCEPTUAL ERRORS:
+  Do NOT give the answer. Instead, ask a Socratic guiding question that points out the contradiction or guides them to the truth.
+
+CONVERSATIONAL RULES:
+- Talk naturally and freely. Do not just ask questions.
+- Encourage advanced vocabulary.
+- Maintain a supportive, encouraging, and peer-like tone.`;
 
     const messages = [
         { role: "system", content: systemPrompt },
