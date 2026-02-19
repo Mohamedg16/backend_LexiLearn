@@ -243,7 +243,7 @@ const chatTutorVocal = async (req, res, next) => {
         const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
             audio_url: uploadUrl,
             language_code: "en",
-            speech_model: "universal-2"
+            speech_models: ["universal-2"]
         }, {
             headers: {
                 ...scaffoldingHeaders,
@@ -341,7 +341,7 @@ const transcribeAudio = async (req, res, next) => {
             const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
                 audio_url: assemblyAudioUrl,
                 language_code: "en",
-                speech_model: "universal-2"
+                speech_models: ["universal-2"]
             }, { headers: assemblyHeaders });
 
             const transcriptId = transcriptReq.data.id;
