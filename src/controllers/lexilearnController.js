@@ -91,9 +91,9 @@ function executePythonBridge(data) {
 async function generateTutorResponseLeMUR(transcriptId, systemPrompt, userText) {
     try {
         console.log(`--- 🧠 Calling LeMUR for transcript: ${transcriptId} ---`);
-        const response = await axios.post(`https://api.assemblyai.com/lemur/v3/generate`, {
+        const response = await axios.post(`https://api.assemblyai.com/v2/lemur/task`, {
             transcript_ids: [transcriptId],
-            prompt: `You are the tutor. Based on the transcript of the student's speech, provide your response following these rules: ${systemPrompt}`,
+            prompt: `You are the tutor. Based on the transcript of the student's speech, provide your response following these rules: ${systemPrompt}. Provide only your reply to the student.`,
             final_model: "default"
         }, { headers: assemblyHeaders });
 
@@ -180,13 +180,13 @@ const synthesizeSpeech = async (text) => {
         // Cleaning text for better TTS (removing markdown icons/blocks)
         const cleanText = text.replace(/📝|💡|✅|---/g, '').trim();
 
-        // Using a high-quality TTS model on Bytez
-        const ttsModel = bytezSdk.model("elevenlabs/eleven_multilingual_v2");
+        // Using a reliable model on Bytez
+        const ttsModel = bytezSdk.model("suno/bark-small");
         const { error, output } = await ttsModel.run(cleanText);
 
         if (error || !output) {
             console.error("Bytez TTS Error:", error || "Empty output");
-            // Fallback to a faster OSS model
+            // Secondary fallback
             const fallbackModel = bytezSdk.model("facebook/mms-tts-eng");
             const fallbackRes = await fallbackModel.run(cleanText);
             if (fallbackRes.error || !fallbackRes.output) return null;
@@ -219,8 +219,23 @@ const saveAudioBuffer = async (buffer) => {
 
         const filePath = path.join(audioDir, fileName);
 
-        // Ensure buffer is actually a buffer
+        // Ensure buffer is actually a buffer and has content
+        if (!buffer || (Buffer.isBuffer(buffer) && buffer.length === 0)) {
+            console.error("❌ saveAudioBuffer: Null or empty buffer received");
+            return null;
+        }
+
         const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+
+        // Final sanity check: if the data is just text (like an error message), don't treat it as audio
+        if (data.length < 500) { // Most valid MP3s/audio files are larger than this
+            const textSample = data.toString('utf8').toLowerCase();
+            if (textSample.includes('error') || textSample.includes('invalid') || textSample.includes('model')) {
+                console.error("❌ saveAudioBuffer: Buffer seems to contain text error, not audio");
+                return null;
+            }
+        }
+
         await fsExtra.writeFile(filePath, data);
 
         // Use the dedicated file retrieval route that sets correct MIME types and CORS
