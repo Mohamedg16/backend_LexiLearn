@@ -101,19 +101,39 @@ async function generateTutorResponse(messages) {
  * Shared Logic for Socratic Tutor Processing
  */
 const processTutorLogic = async (message, topic, history = []) => {
-    const systemPrompt = `You are a 'Conversational AI Socratic Tutor' on LexiLearn helping a student brainstorm for their topic: "${topic}".
+    // Ensure history is a proper array
+    let sanitizedHistory = [];
+    try {
+        if (typeof history === 'string') {
+            sanitizedHistory = JSON.parse(history);
+        } else if (Array.isArray(history)) {
+            sanitizedHistory = history;
+        }
+    } catch (e) {
+        console.warn("⚠️ History parsing failed, starting fresh.");
+        sanitizedHistory = [];
+    }
 
-YOUR RULES:
-1. Conversational Mode: Have a free-flowing, natural conversation based on the student's input.
-2. Error Correction:
-   - If the student makes a LINGUISTIC mistake (grammar, spelling, word choice), politely correct them, explain why it's wrong, and show the correct version.
-   - If they make a CONCEPTUAL error, don't just give the answer. Use the Socratic method: ask a question that guides them to realize the truth.
-3. Vocabulary Boost: Encourage the use of advanced synonyms.
-4. Limit: Do NOT write the final speech for them. Keep responses concise and focused on brainstorming.`;
+    const systemPrompt = `You are an 'Empathetic Socratic Tutor' helping a student brainstorm for: "${topic}".
+
+YOUR CORE MISSION:
+1. Conversational AI: Engage in a free-flowing, natural academic conversation.
+2. Mistake Correction (MANDATORY):
+   - If the student makes a LINGUISTIC mistake (grammar, syntax, spelling):
+     a) Politely point it out.
+     b) Explain WHY it is incorrect (the rule).
+     c) Provide the CORRECT version.
+   - If they make a CONCEPTUAL mistake:
+     Don't give the answer. Use the Socratic method—ask a leading question to help them realize the error.
+3. Vocabulary: Encourage advanced synonyms.
+4. Voice/Tone: Supportive, peer-like, and encouraging.`;
 
     const messages = [
         { role: "system", content: systemPrompt },
-        ...history.map(m => ({ role: m.role, content: m.content })),
+        ...sanitizedHistory.slice(-10).map(m => ({
+            role: m.role || 'user',
+            content: m.content || m.text || ''
+        })),
         { role: "user", content: message }
     ];
 
@@ -142,12 +162,18 @@ const chatTutor = async (req, res, next) => {
 const chatTutorVocal = async (req, res, next) => {
     const filePath = req.file?.path;
     try {
-        if (!req.file) return res.status(400).json({ success: false, message: 'No audio recorded' });
-        const { topic, history: historyStr = "[]" } = req.body;
-        const history = JSON.parse(historyStr);
+        console.log("🎙️ Vocal Chat Request - Body:", req.body);
+
+        if (!req.file) {
+            console.error("❌ Multer Error: No file found in request.");
+            return res.status(400).json({ success: false, message: 'Audio stream was empty or interrupted.' });
+        }
+
+        const { topic, history = "[]" } = req.body;
+        console.log(`📁 File saved at: ${filePath}, size: ${req.file.size} bytes`);
 
         // 1. Transcribe with AssemblyAI
-        console.log("--- 🎙️ Tutor Audio Transcription Started ---");
+        console.log("--- 🎙️ Connecting to AssemblyAI ---");
         const audioData = await fsExtra.readFile(filePath);
         const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioData, {
             headers: { ...assemblyHeaders, "content-type": "application/octet-stream" }
@@ -162,14 +188,27 @@ const chatTutorVocal = async (req, res, next) => {
         const transcriptId = transcriptReq.data.id;
         let transcribedText = "";
 
-        while (true) {
+        let pollingAttempts = 0;
+        while (pollingAttempts < 30) {
             const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, { headers: assemblyHeaders });
-            if (pollingRes.data.status === "completed") {
+            const status = pollingRes.data.status;
+
+            if (status === "completed") {
                 transcribedText = pollingRes.data.text;
                 break;
-            } else if (pollingRes.data.status === "error") throw new Error(pollingRes.data.error);
-            await new Promise(r => setTimeout(r, 1500));
+            } else if (status === "error") {
+                throw new Error(`AssemblyAI Transcription failed: ${pollingRes.data.error}`);
+            }
+
+            await new Promise(r => setTimeout(r, 1000));
+            pollingAttempts++;
         }
+
+        if (!transcribedText) {
+            throw new Error("No speech detected. Please speak closer to the microphone.");
+        }
+
+        console.log(`✅ AssemblyAI Decoded: "${transcribedText}"`);
 
         // 2. Process with AI Logic
         const aiResponse = await processTutorLogic(transcribedText, topic, history);
@@ -177,13 +216,17 @@ const chatTutorVocal = async (req, res, next) => {
         // Cleanup
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-        return successResponse(res, 200, 'Vocal tutor response generated', {
+        return successResponse(res, 200, 'Vocal response generated', {
             userText: transcribedText,
             response: aiResponse
         });
     } catch (error) {
+        console.error("❌ chatTutorVocal Error:", error.message);
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        next(error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Voice processing failed."
+        });
     }
 };
 
