@@ -80,46 +80,109 @@ function executePythonBridge(data) {
 }
 
 /**
- * Phase 1: Socratic Tutor Chat
+ * Shared Helper for Bytez AI Generation
+ */
+async function generateTutorResponse(messages) {
+    const { error, output } = await bytezModel.run(messages);
+    if (error) {
+        console.error("Bytez API Error:", error);
+        throw new Error("Bytez API returned an error");
+    }
+
+    let aiResponse = "";
+    if (typeof output === 'string') aiResponse = output;
+    else if (output?.content) aiResponse = output.content;
+    else if (output?.choices?.[0]?.message) aiResponse = output.choices[0].message.content;
+    else aiResponse = JSON.stringify(output);
+    return aiResponse;
+}
+
+/**
+ * Shared Logic for Socratic Tutor Processing
+ */
+const processTutorLogic = async (message, topic, history = []) => {
+    const systemPrompt = `You are a 'Conversational AI Socratic Tutor' on LexiLearn helping a student brainstorm for their topic: "${topic}".
+
+YOUR RULES:
+1. Conversational Mode: Have a free-flowing, natural conversation based on the student's input.
+2. Error Correction:
+   - If the student makes a LINGUISTIC mistake (grammar, spelling, word choice), politely correct them, explain why it's wrong, and show the correct version.
+   - If they make a CONCEPTUAL error, don't just give the answer. Use the Socratic method: ask a question that guides them to realize the truth.
+3. Vocabulary Boost: Encourage the use of advanced synonyms.
+4. Limit: Do NOT write the final speech for them. Keep responses concise and focused on brainstorming.`;
+
+    const messages = [
+        { role: "system", content: systemPrompt },
+        ...history.map(m => ({ role: m.role, content: m.content })),
+        { role: "user", content: message }
+    ];
+
+    return await generateTutorResponse(messages);
+};
+
+/**
+ * Phase 1: Socratic Tutor Chat (Text)
  */
 const chatTutor = async (req, res, next) => {
     try {
-        const { message, topic } = req.body;
+        const { message, topic, history = [] } = req.body;
+        const aiResponse = await processTutorLogic(message, topic, history);
 
-        const messages = [
-            { role: "system", content: `You are a Socratic Tutor helping a student brainstorm for a speaking task on the topic: "${topic}". Your goal is to help them organize their thoughts and use advanced vocabulary. Do not write the speech for them. Ask guiding questions. Be concise.` },
-            { role: "user", content: message }
-        ];
-
-        // Bytez (OpenAI Compatible) format
-        const prompt = [
-            { role: "system", content: "You are a helpful and knowledgeable academic assistant for students using LexiLearn. Your goal is to help them with their studies, vocabulary, and language skills. Be encouraging, precise, and concise." },
-            { role: "user", content: `System: You are a Socratic Tutor helping a student brainstorm for a speaking task on the topic: "${topic}". Your goal is to help them organize their thoughts and use advanced vocabulary. Do not write the speech for them. Ask guiding questions. Be concise.\nUser: ${message}` }
-        ];
-
-        const { error, output } = await bytezModel.run(prompt);
-
-        if (error) {
-            console.error("Bytez API Error:", error);
-            throw new Error("Bytez API returned an error");
-        }
-
-        let aiResponse = "";
-        if (typeof output === 'string') {
-            aiResponse = output;
-        } else if (output && output.content) {
-            aiResponse = output.content;
-        } else if (output && output.choices && output.choices[0] && output.choices[0].message) {
-            aiResponse = output.choices[0].message.content; // OpenAI format fallback
-        } else {
-            console.warn("Unexpected Bytez output:", output);
-            aiResponse = JSON.stringify(output); // Safety net
-        }
         return successResponse(res, 200, 'Tutor response generated', {
             response: aiResponse
         });
     } catch (error) {
-        console.error("AI Tutor Error:", error);
+        next(error);
+    }
+};
+
+/**
+ * Phase 1: Socratic Tutor Chat (Vocal)
+ */
+const chatTutorVocal = async (req, res, next) => {
+    const filePath = req.file?.path;
+    try {
+        if (!req.file) return res.status(400).json({ success: false, message: 'No audio recorded' });
+        const { topic, history: historyStr = "[]" } = req.body;
+        const history = JSON.parse(historyStr);
+
+        // 1. Transcribe with AssemblyAI
+        console.log("--- 🎙️ Tutor Audio Transcription Started ---");
+        const audioData = await fsExtra.readFile(filePath);
+        const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioData, {
+            headers: { ...assemblyHeaders, "content-type": "application/octet-stream" }
+        });
+        const assemblyAudioUrl = uploadResponse.data.upload_url;
+
+        const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
+            audio_url: assemblyAudioUrl,
+            language_code: "en"
+        }, { headers: assemblyHeaders });
+
+        const transcriptId = transcriptReq.data.id;
+        let transcribedText = "";
+
+        while (true) {
+            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, { headers: assemblyHeaders });
+            if (pollingRes.data.status === "completed") {
+                transcribedText = pollingRes.data.text;
+                break;
+            } else if (pollingRes.data.status === "error") throw new Error(pollingRes.data.error);
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        // 2. Process with AI Logic
+        const aiResponse = await processTutorLogic(transcribedText, topic, history);
+
+        // Cleanup
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+        return successResponse(res, 200, 'Vocal tutor response generated', {
+            userText: transcribedText,
+            response: aiResponse
+        });
+    } catch (error) {
+        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
         next(error);
     }
 };
@@ -281,6 +344,7 @@ const saveSession = async (req, res, next) => {
 
 module.exports = {
     chatTutor,
+    chatTutorVocal,
     transcribeAudio,
     analyzeSpeech,
     saveSession
