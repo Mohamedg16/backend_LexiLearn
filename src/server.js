@@ -72,13 +72,19 @@ app.use((req, res, next) => {
     next();
 });
 
-// Serve static files from uploads directory
+// Serve static files from uploads directory - IMPORTANT: Matches the file return path
 const UPLOADS_PATH = path.resolve(process.cwd(), 'uploads');
 console.log('📂 Serving static files from:', UPLOADS_PATH);
-app.use('/uploads', express.static(UPLOADS_PATH, {
-    setHeaders: (res) => {
+
+// Serve files directly via /api/upload/file route to match what the controller returns
+app.use('/api/upload/file', express.static(UPLOADS_PATH, {
+    setHeaders: (res, filePath) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        // Force correct MIME type for MP3s to ensure browser playback
+        if (filePath.endsWith('.mp3')) {
+            res.setHeader('Content-Type', 'audio/mpeg');
+        }
     }
 }));
 
