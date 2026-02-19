@@ -7,6 +7,7 @@ const { successResponse } = require('../utils/helpers');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const Bytez = require('bytez.js');
 const BYTEZ_API_KEY = process.env.BYTEZ_API_KEY;
@@ -98,10 +99,9 @@ async function generateTutorResponse(messages) {
 }
 
 /**
- * Shared Logic for Socratic Tutor Processing
+ * Shared Logic for Friendly Tutor Processing
  */
 const processTutorLogic = async (message, topic, history = []) => {
-    // Ensure history is a proper array
     let sanitizedHistory = [];
     try {
         if (typeof history === 'string') {
@@ -110,26 +110,27 @@ const processTutorLogic = async (message, topic, history = []) => {
             sanitizedHistory = history;
         }
     } catch (e) {
-        console.warn("⚠️ History parsing failed, starting fresh.");
         sanitizedHistory = [];
     }
 
-    const systemPrompt = `You are an 'Empathetic Socratic Tutor' for LexiLearn.
-Topic: "${topic}".
+    const systemPrompt = `You are a friendly and encouraging language tutor on LexiLearn. 
+Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
 
-STRICT CORRECTION DISCIPLINE:
-- MISTAKE DETECTION: You MUST monitor every message for LINGUISTIC (grammar/spelling) and CONCEPTUAL mistakes.
-- HOW TO CORRECT LINGUISTIC ERRORS:
-  1. Polite Correction: Gently mention the error.
-  2. Explanation: Explain the specific rule or why it was wrong.
-  3. Correct Form: Provide the exact corrected version.
-- HOW TO CORRECT CONCEPTUAL ERRORS:
-  Do NOT give the answer. Instead, ask a Socratic guiding question that points out the contradiction or guides them to the truth.
+FREE TOPIC MODE:
+You can discuss any topic the student wants. Be curious, engaging, and peer-like.
 
-CONVERSATIONAL RULES:
-- Talk naturally and freely. Do not just ask questions.
-- Encourage advanced vocabulary.
-- Maintain a supportive, encouraging, and peer-like tone.`;
+LINGUISTIC CORRECTION RULE:
+If the student makes any grammar, vocabulary, or spelling mistakes:
+1. Provide a correction block at the very top of your response:
+   📝 Correction: [Provide the corrected sentence]
+   💡 Explanation: [Briefly explain the mistake]
+   ✅ Example: [Another correct example sentence]
+2. Then, continue the conversation naturally in a new paragraph.
+
+IMPORTANT:
+- If there are NO mistakes, do NOT include the correction block.
+- For VOICE input, you can also naturally mention pronunciation tips if you see phonetic errors in the transcription.
+- Stay supportive and helpful!`;
 
     const messages = [
         { role: "system", content: systemPrompt },
@@ -141,6 +142,50 @@ CONVERSATIONAL RULES:
     ];
 
     return await generateTutorResponse(messages);
+};
+
+/**
+ * TTS Helper using Bytez
+ */
+const synthesizeSpeech = async (text) => {
+    try {
+        // Cleaning text for better TTS (removing markdown icons/blocks)
+        const cleanText = text.replace(/📝|💡|✅|---/g, '').trim();
+
+        // Using a high-quality TTS model on Bytez
+        const ttsModel = bytezSdk.model("elevenlabs/eleven_multilingual_v2");
+        const { error, output } = await ttsModel.run(cleanText);
+
+        if (error) {
+            console.error("Bytez TTS Error:", error);
+            // Fallback to a faster OSS model if ElevenLabs fails/not available
+            const fallbackModel = bytezSdk.model("facebook/mms-tts-eng");
+            const fallbackResponse = await fallbackModel.run(cleanText);
+            if (fallbackResponse.error) return null;
+            return await saveAudioBuffer(fallbackResponse.output);
+        }
+
+        return await saveAudioBuffer(output);
+    } catch (err) {
+        console.error("TTS Synthesis failed:", err);
+        return null;
+    }
+};
+
+/**
+ * Save buffer to the uploads/audio directory
+ */
+const saveAudioBuffer = async (buffer) => {
+    const fileName = `ai_res_${crypto.randomUUID()}.mp3`;
+    const audioDir = path.join(__dirname, '../../uploads/audio');
+
+    if (!fs.existsSync(audioDir)) {
+        fs.mkdirSync(audioDir, { recursive: true });
+    }
+
+    const filePath = path.join(audioDir, fileName);
+    await fsExtra.writeFile(filePath, buffer);
+    return `/uploads/audio/${fileName}`;
 };
 
 /**
@@ -217,12 +262,21 @@ const chatTutorVocal = async (req, res, next) => {
         // 2. Process with AI Logic
         const aiResponse = await processTutorLogic(transcribedText, topic, history);
 
-        // Cleanup
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        // 3. Convert response to speech using Bytez
+        let audioUrl = null;
+        try {
+            audioUrl = await synthesizeSpeech(aiResponse);
+        } catch (ttsErr) {
+            console.error("TTS conversion failed:", ttsErr);
+        }
+
+        // Cleanup temp file
+        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
         return successResponse(res, 200, 'Vocal response generated', {
             userText: transcribedText,
-            response: aiResponse
+            response: aiResponse,
+            audioUrl: audioUrl
         });
     } catch (error) {
         console.error("❌ chatTutorVocal Error:", error.message);

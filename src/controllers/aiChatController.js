@@ -9,10 +9,13 @@ const axios = require('axios');
 const fsExtra = require('fs-extra');
 const fs = require('fs');
 const Bytez = require('bytez.js');
+const crypto = require('crypto');
+const path = require('path');
 const BYTEZ_API_KEY = process.env.BYTEZ_API_KEY;
 // Initialize Bytez client
 const bytezSdk = new Bytez(BYTEZ_API_KEY);
 const bytezModel = bytezSdk.model("openai/gpt-4o");
+const ttsModel = bytezSdk.model("elevenlabs/eleven_multilingual_v2");
 
 // AssemblyAI Config
 const ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY;
@@ -87,17 +90,18 @@ const processAiResponse = async (userText, conversationId, userId) => {
     const messagesForAI = [
         {
             role: "system",
-            content: `You are an 'Empathetic Language Tutor' for students on LexiLearn. Your goal is to support their learning journey with a supportive, educational, and peer-like tone.
+            content: `You are a friendly and encouraging language tutor on LexiLearn.
+Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
 
-For EVERY student message:
-1. First, analyze the message for any linguistic or grammatical errors.
-2. If there ARE errors, start your response with a 'Correction' block exactly like this:
-   ---
-   📝 Correction: [Briefly explain the error and provide the corrected version]
-   ---
-3. Then, proceed with your natural, empathetic response to their message content.
+LINGUISTIC CORRECTION RULE:
+If the student makes any grammar, vocabulary, or spelling mistakes:
+1. Provide a correction block at the very top of your response:
+   📝 Correction: [Provide the corrected sentence]
+   💡 Explanation: [Briefly explain the mistake]
+   ✅ Example: [Another correct example sentence]
+2. Then, continue the conversation naturally in a new paragraph.
 
-If there are NO errors, do NOT include the correction block and just respond naturally. Be encouraging and helpful.`
+IMPORTANT: If there are NO mistakes, do NOT include the correction block. Just respond naturally.`
         },
         ...conversation.messages.map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.content }))
     ];
@@ -117,9 +121,30 @@ If there are NO errors, do NOT include the correction block and just respond nat
     return {
         conversationId: conversation._id,
         response: aiResponse,
-        userText: userText, // Return what was understood (especially for vocales)
+        userText: userText,
         messages: conversation.messages
     };
+};
+
+/**
+ * TTS Helper
+ */
+const synthesizeSpeech = async (text) => {
+    try {
+        const cleanText = text.replace(/📝|💡|✅|---/g, '').trim();
+        const { error, output } = await ttsModel.run(cleanText);
+        if (error) return null;
+
+        const fileName = `res_${crypto.randomUUID()}.mp3`;
+        const audioDir = path.join(__dirname, '../../uploads/audio');
+        if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
+
+        const filePath = path.join(audioDir, fileName);
+        await fsExtra.writeFile(filePath, output);
+        return `/uploads/audio/${fileName}`;
+    } catch (err) {
+        return null;
+    }
 };
 
 /**
@@ -154,8 +179,11 @@ const sendVocalMessage = async (req, res, next) => {
         // 2. Process with AI Tutor
         const result = await processAiResponse(transcribedText, conversationId, req.user._id);
 
+        // 3. TTS for vocal mode
+        result.audioUrl = await synthesizeSpeech(result.response);
+
         // Clean up temp file
-        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         return successResponse(res, 200, 'Vocal processed', result);
     } catch (error) {
