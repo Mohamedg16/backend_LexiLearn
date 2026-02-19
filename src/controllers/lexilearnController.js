@@ -219,17 +219,10 @@ const chatTutor = async (req, res, next) => {
         const { message, topic, history = [] } = req.body;
         const aiResponse = await processTutorLogic(message, topic, history, false);
 
-        // Generate voice version even for text input
-        let audioUrl = null;
-        try {
-            audioUrl = await synthesizeSpeech(aiResponse);
-        } catch (ttsErr) {
-            console.error("TTS conversion failed for text input:", ttsErr);
-        }
-
+        // Text interaction only: No audio generation
         return successResponse(res, 200, 'Tutor response generated', {
             response: aiResponse,
-            audioUrl: audioUrl
+            audioUrl: null
         });
     } catch (error) {
         next(error);
@@ -254,7 +247,7 @@ const chatTutorVocal = async (req, res, next) => {
         const audioBuffer = fs.readFileSync(filePath);
         const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioBuffer, {
             headers: {
-                ...scaffoldingHeaders,
+                ...assemblyHeaders,
                 "content-type": "application/octet-stream"
             }
         });
@@ -270,7 +263,7 @@ const chatTutorVocal = async (req, res, next) => {
             speech_models: ["universal-2"]
         }, {
             headers: {
-                ...scaffoldingHeaders,
+                ...assemblyHeaders,
                 "content-type": "application/json"
             }
         });
@@ -283,7 +276,7 @@ const chatTutorVocal = async (req, res, next) => {
         let pollingAttempts = 0;
         while (pollingAttempts < 30) {
             const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, {
-                headers: scaffoldingHeaders
+                headers: assemblyHeaders
             });
             const { status, text, error: assemblyError } = pollingRes.data;
 
