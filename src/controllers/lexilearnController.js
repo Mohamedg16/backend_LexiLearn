@@ -16,10 +16,16 @@ const bytezSdk = new Bytez(BYTEZ_API_KEY);
 const bytezModel = bytezSdk.model("openai/gpt-4o");
 // AssemblyAI Config
 const ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY;
+const ASSEMBLY_API_KEY_SCAFFOLDING = process.env.ASSEMBLYAI_API_KEY_SCAFFOLDING;
 const ASSEMBLY_BASE_URL = "https://api.assemblyai.com/v2";
 
 const assemblyHeaders = {
     authorization: ASSEMBLY_API_KEY,
+    "content-type": "application/json"
+};
+
+const scaffoldingHeaders = {
+    authorization: ASSEMBLY_API_KEY_SCAFFOLDING || ASSEMBLY_API_KEY,
     "content-type": "application/json"
 };
 
@@ -113,23 +119,25 @@ const processTutorLogic = async (message, topic, history = []) => {
         sanitizedHistory = [];
     }
 
-    const systemPrompt = `You are a friendly and encouraging language tutor on LexiLearn. 
+    const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
 Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
 
 FREE TOPIC MODE:
-You can discuss any topic the student wants. Be curious, engaging, and peer-like.
+You can discuss any topic the student wants. Be curious, engaging, and clear.
 
 LINGUISTIC CORRECTION RULE:
 If the student makes any grammar, vocabulary, or spelling mistakes:
-1. Provide a correction block at the very top of your response:
-   📝 Correction: [Provide the corrected sentence]
-   💡 Explanation: [Briefly explain the mistake]
-   ✅ Example: [Another correct example sentence]
+1. Provide a correction block at the very top of your response using this exact format:
+   You said: "[Quote the mistake]"
+   Correct form: "[Provide the corrected version]"
+   Explanation: "[Briefly explain the rule or why it was wrong]"
 2. Then, continue the conversation naturally in a new paragraph.
 
 IMPORTANT:
 - If there are NO mistakes, do NOT include the correction block.
-- For VOICE input, you can also naturally mention pronunciation tips if you see phonetic errors in the transcription.
+- Maintain a professional yet warm teacher tone.
+- Do NOT be overly strict; keep the flow natural.
+- For VOICE input, if you notice pronunciation issues from the phonetics, mention them naturally.
 - Stay supportive and helpful!`;
 
     const messages = [
@@ -222,24 +230,24 @@ const chatTutorVocal = async (req, res, next) => {
         console.log(`📁 File saved at: ${filePath}, size: ${req.file.size} bytes`);
 
         // 1. Transcribe with AssemblyAI
-        console.log("--- 🎙️ Connecting to AssemblyAI ---");
+        console.log("--- 🎙️ Connecting to AssemblyAI (Scaffolding Service) ---");
         const audioData = await fsExtra.readFile(filePath);
         const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioData, {
-            headers: { ...assemblyHeaders, "content-type": "application/octet-stream" }
+            headers: { ...scaffoldingHeaders, "content-type": "application/octet-stream" }
         });
         const assemblyAudioUrl = uploadResponse.data.upload_url;
 
         const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
             audio_url: assemblyAudioUrl,
             language_code: "en"
-        }, { headers: assemblyHeaders });
+        }, { headers: scaffoldingHeaders });
 
         const transcriptId = transcriptReq.data.id;
         let transcribedText = "";
 
         let pollingAttempts = 0;
         while (pollingAttempts < 30) {
-            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, { headers: assemblyHeaders });
+            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, { headers: scaffoldingHeaders });
             const status = pollingRes.data.status;
 
             if (status === "completed") {
