@@ -60,6 +60,8 @@ router.get('/videos', adminController.getAllVideos);
 router.get('/statistics/overview', adminController.getPlatformStatistics);
 router.get('/system/health', adminController.getSystemHealth);
 router.get('/system/logs', adminController.getSystemLogs);
+router.get('/export-financial-report', adminController.exportFinancialReport);
+router.get('/export-faculty-report', adminController.exportFacultyReport);
 
 // Payments
 router.get('/payments', adminController.getAllPayments);

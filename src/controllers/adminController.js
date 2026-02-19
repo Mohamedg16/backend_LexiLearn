@@ -11,6 +11,7 @@ const SystemLog = require('../models/SystemLog');
 const Message = require('../models/Message');
 const { successResponse, createPagination } = require('../utils/helpers');
 const bcrypt = require('bcrypt');
+const PDFDocument = require("pdfkit-table");
 
 /**
  * Get all users with filters and pagination
@@ -900,6 +901,151 @@ const markMessageAsRead = async (req, res, next) => {
     }
 };
 
+/**
+ * Export Financial Report as PDF
+ * GET /api/admin/export-financial-report
+ */
+const exportFinancialReport = async (req, res, next) => {
+    try {
+        const students = await Student.find()
+            .populate('userId', 'fullName email')
+            .sort({ createdAt: -1 });
+
+        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", "attachment; filename=financial-validation-report.pdf");
+
+        doc.pipe(res);
+
+        // Header
+        doc.fontSize(24).fillColor('#EF4444').text("AdminX", { align: 'left' });
+        doc.fontSize(18).fillColor('#1F2937').text("Financial Validation Report", { align: 'left' });
+        doc.fontSize(10).fillColor('#6B7280').text(`Generated on: ${new Date().toLocaleString()}`, { align: 'left' });
+        doc.moveDown();
+        doc.moveTo(30, doc.y).lineTo(565, doc.y).strokeColor('#E5E7EB').stroke();
+        doc.moveDown();
+
+        const table = {
+            title: { label: "Student Ledger", fontSize: 14, color: '#111827' },
+            subtitle: { label: "Monthly subscription and payment status summary", fontSize: 10, color: '#4B5563' },
+            headers: [
+                { label: "Student Name", property: 'name', width: 120 },
+                { label: "Level", property: 'level', width: 100 },
+                { label: "Lessons", property: 'lessons', width: 60 },
+                { label: "Subscription", property: 'sub', width: 80 },
+                { label: "Payment", property: 'pay', width: 80 },
+                { label: "Last Validated", property: 'date', width: 90 },
+            ],
+            datas: students.map(s => ({
+                name: s.userId?.fullName || 'N/A',
+                level: s.level || 'N/A',
+                lessons: s.totalLessonsCompleted?.toString() || '0',
+                sub: s.subscriptionStatus?.toUpperCase() || 'N/A',
+                pay: s.monthlyPaymentStatus?.toUpperCase() || 'N/A',
+                date: s.lastPaymentDate ? new Date(s.lastPaymentDate).toLocaleDateString() : 'NO HISTORY'
+            }))
+        };
+
+        await doc.table(table, {
+            prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10).fillColor('#F9FAFB'),
+            prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                doc.font("Helvetica").fontSize(9).fillColor('#374151');
+
+                // Highlight payment status in red if not PAID
+                if (indexColumn === 4) {
+                    const status = row.pay;
+                    if (status !== 'PAID') {
+                        doc.fillColor('#DC2626').font("Helvetica-Bold");
+                    } else {
+                        doc.fillColor('#10B981').font("Helvetica-Bold");
+                    }
+                }
+            },
+            headerColor: '#111827',
+            headerOpacity: 1,
+        });
+
+        doc.end();
+    } catch (error) {
+        console.error("Financial PDF generation failed:", error);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: "Failed to generate Financial PDF" });
+        }
+    }
+};
+
+/**
+ * Export Faculty Hub Report as PDF
+ * GET /api/admin/export-faculty-report
+ */
+const exportFacultyReport = async (req, res, next) => {
+    try {
+        const teachers = await Teacher.find()
+            .populate('userId', 'fullName email isActive')
+            .populate('assignedModules', 'title')
+            .sort({ createdAt: -1 });
+
+        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", "attachment; filename=faculty-hub-report.pdf");
+
+        doc.pipe(res);
+
+        // Header
+        doc.fontSize(24).fillColor('#EF4444').text("AdminX", { align: 'left' });
+        doc.fontSize(18).fillColor('#1F2937').text("Faculty Hub Report", { align: 'left' });
+        doc.fontSize(10).fillColor('#6B7280').text(`Generated on: ${new Date().toLocaleString()}`, { align: 'left' });
+        doc.moveDown();
+        doc.moveTo(30, doc.y).lineTo(565, doc.y).strokeColor('#E5E7EB').stroke();
+        doc.moveDown();
+
+        const table = {
+            title: { label: "Academic Specialist Roster", fontSize: 14, color: '#111827' },
+            subtitle: { label: "Overview of teaching faculty and module assignments", fontSize: 10, color: '#4B5563' },
+            headers: [
+                { label: "Specialist Name", property: 'name', width: 150 },
+                { label: "Email", property: 'email', width: 180 },
+                { label: "Modules Assigned", property: 'modules', width: 100 },
+                { label: "Status", property: 'status', width: 100 },
+            ],
+            datas: teachers.map(t => ({
+                name: t.userId?.fullName || 'N/A',
+                email: t.userId?.email || 'N/A',
+                modules: t.assignedModules?.length?.toString() || '0',
+                status: t.userId?.isActive ? 'ACTIVE' : 'OFFLINE'
+            }))
+        };
+
+        await doc.table(table, {
+            prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10).fillColor('#F9FAFB'),
+            prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                doc.font("Helvetica").fontSize(9).fillColor('#374151');
+
+                // Highlight status
+                if (indexColumn === 3) {
+                    const status = row.status;
+                    if (status !== 'ACTIVE') {
+                        doc.fillColor('#DC2626').font("Helvetica-Bold");
+                    } else {
+                        doc.fillColor('#10B981').font("Helvetica-Bold");
+                    }
+                }
+            },
+            headerColor: '#111827',
+            headerOpacity: 1,
+        });
+
+        doc.end();
+    } catch (error) {
+        console.error("Faculty PDF generation failed:", error);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: "Failed to generate Faculty PDF" });
+        }
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserDetails,
@@ -932,5 +1078,7 @@ module.exports = {
     getSystemLogs,
     getAllMessages,
     deleteMessage,
-    markMessageAsRead
+    markMessageAsRead,
+    exportFinancialReport,
+    exportFacultyReport
 };
