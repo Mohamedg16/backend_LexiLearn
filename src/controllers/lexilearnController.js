@@ -107,7 +107,7 @@ async function generateTutorResponse(messages) {
 /**
  * Shared Logic for Friendly Tutor Processing
  */
-const processTutorLogic = async (message, topic, history = []) => {
+const processTutorLogic = async (message, topic, history = [], isVocal = false) => {
     let sanitizedHistory = [];
     try {
         if (typeof history === 'string') {
@@ -130,14 +130,15 @@ If the student makes any grammar, vocabulary, or spelling mistakes:
 1. Provide a correction block at the very top of your response using this exact format:
    You said: "[Quote the mistake]"
    Correct form: "[Provide the corrected version]"
-   Explanation: "[Briefly explain the rule or why it was wrong]"
+   Explanation: "[Briefly explain the rule]"
+   Example: "[Provide another correct example sentence]"
 2. Then, continue the conversation naturally in a new paragraph.
 
 IMPORTANT:
 - If there are NO mistakes, do NOT include the correction block.
-- Maintain a professional yet warm teacher tone.
-- Do NOT be overly strict; keep the flow natural.
-- For VOICE input, if you notice pronunciation issues from the phonetics, mention them naturally.
+- Maintain a teacher tone (clear and educational).
+- ${isVocal ? 'This is a VOICE interaction. Keep your response concise as it will be read aloud.' : 'This is a TEXT interaction.'}
+- For VOICE input, if you notice pronunciation issues in the transcription, mention them naturally.
 - Stay supportive and helpful!`;
 
     const messages = [
@@ -202,7 +203,7 @@ const saveAudioBuffer = async (buffer) => {
 const chatTutor = async (req, res, next) => {
     try {
         const { message, topic, history = [] } = req.body;
-        const aiResponse = await processTutorLogic(message, topic, history);
+        const aiResponse = await processTutorLogic(message, topic, history, false);
 
         return successResponse(res, 200, 'Tutor response generated', {
             response: aiResponse
@@ -268,7 +269,7 @@ const chatTutorVocal = async (req, res, next) => {
         console.log(`✅ AssemblyAI Decoded: "${transcribedText}"`);
 
         // 2. Process with AI Logic
-        const aiResponse = await processTutorLogic(transcribedText, topic, history);
+        const aiResponse = await processTutorLogic(transcribedText, topic, history, true);
 
         // 3. Convert response to speech using Bytez
         let audioUrl = null;
