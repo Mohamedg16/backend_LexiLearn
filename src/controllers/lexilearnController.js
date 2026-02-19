@@ -86,6 +86,26 @@ function executePythonBridge(data) {
 }
 
 /**
+ * Shared Helper for AssemblyAI LeMUR (Logic using AssemblyAI key)
+ */
+async function generateTutorResponseLeMUR(transcriptId, systemPrompt, userText) {
+    try {
+        console.log(`--- 🧠 Calling LeMUR for transcript: ${transcriptId} ---`);
+        const response = await axios.post(`https://api.assemblyai.com/lemur/v3/generate`, {
+            transcript_ids: [transcriptId],
+            prompt: `You are the tutor. Based on the transcript of the student's speech, provide your response following these rules: ${systemPrompt}`,
+            final_model: "default"
+        }, { headers: assemblyHeaders });
+
+        return response.data.response;
+    } catch (err) {
+        console.error("LeMUR API Error:", err.response?.data || err.message);
+        // Fallback to Bytez if LeMUR fails
+        return null;
+    }
+}
+
+/**
  * Shared Helper for Bytez AI Generation
  */
 async function generateTutorResponse(messages) {
@@ -297,10 +317,25 @@ const chatTutorVocal = async (req, res, next) => {
 
         console.log(`✅ Transcription Complete: "${transcribedText}"`);
 
-        // 2. Process with AI Logic
-        const aiResponse = await processTutorLogic(transcribedText, topic, history, true);
+        // --- STEP 4: Process with AI Logic ---
+        // For voice interactions, we prefer AssemblyAI LeMUR to satisfy "use ASSEMBLYAI_API_KEY for speaking"
+        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
+Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
+If the student makes any grammar, vocabulary, or spelling mistakes, provide a correction block at the top:
+You said: "[Quote]"
+Correct form: "[Correction]"
+Explanation: "[Rule]"
+Example: "[Example]"
+Maintain clear and educational tone. Keep it concise for voice.`;
 
-        // 3. Convert response to speech using Bytez
+        let aiResponse = await generateTutorResponseLeMUR(transcriptId, systemPrompt, transcribedText);
+
+        // Fallback to Bytez logic if LeMUR is not available/fails
+        if (!aiResponse) {
+            aiResponse = await processTutorLogic(transcribedText, topic, history, true);
+        }
+
+        // --- STEP 5: Convert response to speech using Bytez (TTS) ---
         let audioUrl = null;
         try {
             audioUrl = await synthesizeSpeech(aiResponse);
