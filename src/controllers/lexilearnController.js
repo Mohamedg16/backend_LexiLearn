@@ -186,16 +186,27 @@ const synthesizeSpeech = async (text) => {
  * Save buffer to the uploads/audio directory
  */
 const saveAudioBuffer = async (buffer) => {
-    const fileName = `ai_res_${crypto.randomUUID()}.mp3`;
-    const audioDir = path.join(__dirname, '../../uploads/audio');
+    try {
+        const fileName = `ai_res_${crypto.randomUUID()}.mp3`;
+        const audioDir = path.resolve(process.cwd(), 'uploads/audio');
 
-    if (!fs.existsSync(audioDir)) {
-        fs.mkdirSync(audioDir, { recursive: true });
+        console.log(`💾 Saving AI audio to: ${audioDir}/${fileName}`);
+
+        if (!fs.existsSync(audioDir)) {
+            fs.mkdirSync(audioDir, { recursive: true });
+        }
+
+        const filePath = path.join(audioDir, fileName);
+
+        // Ensure buffer is actually a buffer
+        const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+        await fsExtra.writeFile(filePath, data);
+
+        return `/uploads/audio/${fileName}`;
+    } catch (err) {
+        console.error("❌ saveAudioBuffer Error:", err);
+        return null;
     }
-
-    const filePath = path.join(audioDir, fileName);
-    await fsExtra.writeFile(filePath, buffer);
-    return `/uploads/audio/${fileName}`;
 };
 
 /**

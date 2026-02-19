@@ -73,7 +73,14 @@ app.use((req, res, next) => {
 });
 
 // Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+const UPLOADS_PATH = path.resolve(process.cwd(), 'uploads');
+console.log('📂 Serving static files from:', UPLOADS_PATH);
+app.use('/uploads', express.static(UPLOADS_PATH, {
+    setHeaders: (res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+}));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
