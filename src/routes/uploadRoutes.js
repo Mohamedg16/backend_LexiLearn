@@ -39,6 +39,7 @@ router.post('/', protect, uploadSingle('file'), (req, res, next) => {
  * GET /api/upload/file/:filename
  */
 router.get('/file/:filename', async (req, res) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     try {
         const filePath = path.join(__dirname, '../../uploads', req.params.filename);
         console.log(`📁 Asset request: ${req.params.filename}`);

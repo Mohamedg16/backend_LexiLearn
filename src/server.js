@@ -42,19 +42,19 @@ app.use(helmet({
 
 // CORS configuration
 // CORS configuration
+// CORS configuration
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
     'https://lexilearn-lige.onrender.com',
+    'https://lexilearn.onrender.com', // Added common variation
     process.env.FRONTEND_URL
 ].filter(Boolean);
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-
-        if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+        // More permissive for development and Render subdomains
+        if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.includes('onrender.com') || process.env.NODE_ENV === 'development') {
             callback(null, true);
         } else {
             console.log('Blocked by CORS:', origin);
@@ -65,6 +65,12 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
+
+// Global header to allow cross-origin media loading
+app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+});
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

@@ -163,6 +163,7 @@ const chatTutor = async (req, res, next) => {
  * Phase 1: Socratic Tutor Chat (Vocal)
  */
 const chatTutorVocal = async (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     const filePath = req.file?.path;
     try {
         console.log("🎙️ Vocal Chat Request - Body:", req.body);
@@ -237,6 +238,7 @@ const chatTutorVocal = async (req, res, next) => {
  * Phase 2 & 3: Independent Performance (Transcription) + Analysis Handover
  */
 const transcribeAudio = async (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No audio file uploaded' });
