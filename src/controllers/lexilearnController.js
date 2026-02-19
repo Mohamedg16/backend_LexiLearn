@@ -164,16 +164,18 @@ const synthesizeSpeech = async (text) => {
         const ttsModel = bytezSdk.model("elevenlabs/eleven_multilingual_v2");
         const { error, output } = await ttsModel.run(cleanText);
 
-        if (error) {
-            console.error("Bytez TTS Error:", error);
-            // Fallback to a faster OSS model if ElevenLabs fails/not available
+        if (error || !output) {
+            console.error("Bytez TTS Error:", error || "Empty output");
+            // Fallback to a faster OSS model
             const fallbackModel = bytezSdk.model("facebook/mms-tts-eng");
-            const fallbackResponse = await fallbackModel.run(cleanText);
-            if (fallbackResponse.error) return null;
-            return await saveAudioBuffer(fallbackResponse.output);
+            const fallbackRes = await fallbackModel.run(cleanText);
+            if (fallbackRes.error || !fallbackRes.output) return null;
+            return await saveAudioBuffer(fallbackRes.output);
         }
 
-        return await saveAudioBuffer(output);
+        const audioUrl = await saveAudioBuffer(output);
+        console.log("🔊 AI Audio Generated:", audioUrl);
+        return audioUrl;
     } catch (err) {
         console.error("TTS Synthesis failed:", err);
         return null;
