@@ -217,8 +217,17 @@ const chatTutor = async (req, res, next) => {
         const { message, topic, history = [] } = req.body;
         const aiResponse = await processTutorLogic(message, topic, history, false);
 
+        // Generate voice version even for text input
+        let audioUrl = null;
+        try {
+            audioUrl = await synthesizeSpeech(aiResponse);
+        } catch (ttsErr) {
+            console.error("TTS conversion failed for text input:", ttsErr);
+        }
+
         return successResponse(res, 200, 'Tutor response generated', {
-            response: aiResponse
+            response: aiResponse,
+            audioUrl: audioUrl
         });
     } catch (error) {
         next(error);
