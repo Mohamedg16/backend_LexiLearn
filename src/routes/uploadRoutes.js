@@ -41,15 +41,23 @@ router.post('/', protect, uploadSingle('file'), (req, res, next) => {
 router.get('/file/:filename', async (req, res) => {
     try {
         const filePath = path.join(__dirname, '../../uploads', req.params.filename);
+        console.log(`📁 Asset request: ${req.params.filename}`);
 
         if (!fs.existsSync(filePath)) {
+            console.error(`❌ Asset not found: ${filePath}`);
             return res.status(404).json({
                 success: false,
                 message: 'Asset not found on server disk'
             });
         }
 
-        // res.sendFile handles Content-Type automatically based on extension
+        // Explicitly handle audio types for better browser compatibility
+        const ext = path.extname(req.params.filename).toLowerCase();
+        if (ext === '.webm') res.type('audio/webm');
+        if (ext === '.ogg') res.type('audio/ogg');
+        if (ext === '.mp3') res.type('audio/mpeg');
+        if (ext === '.m4a') res.type('audio/mp4');
+
         return res.sendFile(filePath);
     } catch (error) {
         console.error('File Retrieval Error:', error);
