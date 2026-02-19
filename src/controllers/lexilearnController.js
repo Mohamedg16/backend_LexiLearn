@@ -188,7 +188,8 @@ const synthesizeSpeech = async (text) => {
 const saveAudioBuffer = async (buffer) => {
     try {
         const fileName = `ai_res_${crypto.randomUUID()}.mp3`;
-        const audioDir = path.resolve(process.cwd(), 'uploads/audio');
+        // Save to the main uploads folder
+        const audioDir = path.join(__dirname, '../../uploads');
 
         console.log(`💾 Saving AI audio to: ${audioDir}/${fileName}`);
 
@@ -202,7 +203,8 @@ const saveAudioBuffer = async (buffer) => {
         const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
         await fsExtra.writeFile(filePath, data);
 
-        return `/uploads/audio/${fileName}`;
+        // Use the dedicated file retrieval route that sets correct MIME types and CORS
+        return `/api/upload/file/${fileName}`;
     } catch (err) {
         console.error("❌ saveAudioBuffer Error:", err);
         return null;
