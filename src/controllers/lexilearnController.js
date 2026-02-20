@@ -373,7 +373,7 @@ const analyzeSpeech = async (req, res, next) => {
  */
 const saveSession = async (req, res, next) => {
     try {
-        const { topic, transcript, metrics, audioUrl } = req.body;
+        const { topic, transcript, metrics, audioUrl, conversationId } = req.body;
 
         const student = await Student.findOne({ userId: req.user._id });
         if (!student) {
@@ -432,7 +432,8 @@ Format the output clearly with headers.`;
             highlightedTranscript: metrics?.highlightedTranscript || [],
             wordCount: metrics?.wordCount || 0,
             uniqueWordCount: metrics?.uniqueWordCount || 0,
-            advice: aiFeedback // Save generated feedback here
+            advice: aiFeedback, // Save generated feedback here
+            conversationId: conversationId
         });
         await submission.save();
 

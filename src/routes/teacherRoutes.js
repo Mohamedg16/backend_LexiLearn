@@ -26,6 +26,7 @@ router.get('/payments', teacherController.getPayments);
 
 // Assessments
 router.get('/assessments', teacherController.getSpeechAssessments);
+router.get('/assessments/:id', teacherController.getSpeechAssessmentDetail);
 
 // Analytics
 router.get('/analytics', teacherController.getAnalytics);

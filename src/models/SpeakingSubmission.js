@@ -63,6 +63,10 @@ const speakingSubmissionSchema = new mongoose.Schema({
     planningTimeSpent: {
         type: Number,
         default: 0
+    },
+    conversationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Conversation'
     }
 }, {
     timestamps: true

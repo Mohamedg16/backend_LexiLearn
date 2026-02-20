@@ -464,6 +464,30 @@ const getSpeechAssessments = async (req, res, next) => {
     }
 };
 
+/**
+ * Get speech assessment detail
+ * GET /api/teachers/assessments/:id
+ */
+const getSpeechAssessmentDetail = async (req, res, next) => {
+    try {
+        const assessment = await SpeakingSubmission.findById(req.params.id)
+            .populate({
+                path: 'studentId',
+                populate: { path: 'userId', select: 'fullName email profilePicture' }
+            })
+            .populate('conversationId')
+            .lean();
+
+        if (!assessment) {
+            return res.status(404).json({ success: false, message: 'Assessment not found' });
+        }
+
+        return successResponse(res, 200, 'Assessment detail retrieved', assessment);
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     getDashboard,
     getProfile,
@@ -476,5 +500,6 @@ module.exports = {
     getInitData,
     exportSpeakingScores,
     exportAiReport,
-    getSpeechAssessments
+    getSpeechAssessments,
+    getSpeechAssessmentDetail
 };
