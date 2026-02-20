@@ -252,16 +252,20 @@ const getAllStudentConversations = async (req, res, next) => {
             }).lean()
         ]);
 
-        const chatLogs = conversations.map(c => ({
-            _id: c._id,
-            type: 'chat',
-            student: c.studentId,
-            title: c.title || 'General Chat',
-            preview: c.messages && c.messages.length > 0 ? c.messages[c.messages.length - 1].content : '',
-            messageCount: c.messages ? c.messages.length : 0,
-            date: c.updatedAt,
-            details: c
-        }));
+        const chatLogs = conversations.map(c => {
+            const lastAssistantMsg = c.messages?.slice().reverse().find(m => m.role === 'assistant');
+            return {
+                _id: c._id,
+                type: 'chat',
+                student: c.studentId,
+                title: c.title || 'General Chat',
+                preview: c.messages && c.messages.length > 0 ? c.messages[c.messages.length - 1].content : '',
+                messageCount: c.messages ? c.messages.length : 0,
+                date: c.updatedAt,
+                ai_feedback: lastAssistantMsg ? lastAssistantMsg.content : 'No feedback available',
+                details: c
+            };
+        });
 
         const voiceLogs = submissions.map(s => ({
             _id: s._id,
@@ -271,6 +275,7 @@ const getAllStudentConversations = async (req, res, next) => {
             preview: s.transcription ? s.transcription.substring(0, 50) + '...' : 'Audio Submission',
             messageCount: 1,
             date: s.createdAt,
+            ai_feedback: s.advice || 'No detailed feedback available',
             details: s
         }));
 
