@@ -32,6 +32,9 @@ const practiceSessionSchema = new mongoose.Schema({
     audioUrl: {
         type: String
     },
+    audioBase64: {
+        type: String
+    },
     timestamp: {
         type: Date,
         default: Date.now

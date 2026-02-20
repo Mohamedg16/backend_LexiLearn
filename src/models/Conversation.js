@@ -17,6 +17,10 @@ const conversationSchema = new mongoose.Schema({
             required: true,
             maxlength: [10000, 'Message content cannot exceed 10000 characters']
         },
+        audioBase64: {
+            type: String,
+            default: null
+        },
         timestamp: {
             type: Date,
             default: Date.now

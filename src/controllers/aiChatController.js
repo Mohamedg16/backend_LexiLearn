@@ -170,6 +170,12 @@ ${correctionPrompt}`;
         const base64Audio = buffer.toString('base64');
         const audioData = `data:audio/mpeg;base64,${base64Audio}`;
 
+        // Save Base64 in the last assistant message
+        if (conversation.messages.length > 0) {
+            conversation.messages[conversation.messages.length - 1].audioBase64 = base64Audio;
+            await conversation.save();
+        }
+
         // Cleanup
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
@@ -191,7 +197,7 @@ ${correctionPrompt}`;
 };
 
 /**
- * Get all conversations
+ * Get all conversations with preview
  */
 const getConversations = async (req, res, next) => {
     try {
@@ -199,23 +205,52 @@ const getConversations = async (req, res, next) => {
         if (!student) return res.status(404).json({ success: false, message: 'Student profile not found' });
 
         const conversations = await Conversation.find({ studentId: student._id })
-            .select('title createdAt updatedAt')
             .sort({ updatedAt: -1 });
 
-        return successResponse(res, 200, 'Conversations retrieved', conversations);
+        const conversationsWithPreview = conversations.map(conv => {
+            const lastMsg = conv.messages && conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null;
+            const hasAudio = conv.messages?.some(m => m.audioBase64);
+            
+            return {
+                _id: conv._id,
+                title: conv.title || 'Untitled Conversation',
+                preview: lastMsg ? lastMsg.content.substring(0, 60) + '...' : 'No messages',
+                messageCount: conv.messages?.length || 0,
+                hasAudio: hasAudio,
+                createdAt: conv.createdAt,
+                updatedAt: conv.updatedAt
+            };
+        });
+
+        return successResponse(res, 200, 'Conversations retrieved', conversationsWithPreview);
     } catch (error) {
         next(error);
     }
 };
 
 /**
- * Get conversation by ID
+ * Get conversation by ID with Base64 audio
  */
 const getConversationById = async (req, res, next) => {
     try {
         const conversation = await Conversation.findById(req.params.id);
         if (!conversation) return res.status(404).json({ success: false, message: 'Conversation not found' });
-        return successResponse(res, 200, 'Conversation retrieved', conversation);
+        
+        // Convert audioBase64 to data URL format for frontend
+        const conversationData = conversation.toObject();
+        if (conversationData.messages) {
+            conversationData.messages = conversationData.messages.map(msg => {
+                if (msg.audioBase64) {
+                    return {
+                        ...msg,
+                        audioUrl: `data:audio/mpeg;base64,${msg.audioBase64}`
+                    };
+                }
+                return msg;
+            });
+        }
+        
+        return successResponse(res, 200, 'Conversation retrieved', conversationData);
     } catch (error) {
         next(error);
     }

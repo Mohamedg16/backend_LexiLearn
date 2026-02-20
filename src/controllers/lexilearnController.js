@@ -268,6 +268,12 @@ ${correctionInstruction}`;
         const base64Audio = buffer.toString('base64');
         const audioData = `data:audio/mpeg;base64,${base64Audio}`;
 
+        // Save Base64 audio in the last assistant message
+        if (conversation.messages.length > 0) {
+            conversation.messages[conversation.messages.length - 1].audioBase64 = base64Audio;
+            await conversation.save();
+        }
+
         // Cleanup
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
@@ -334,11 +340,19 @@ const transcribeAudio = async (req, res, next) => {
             }
         }
 
+        // Convert audio file to Base64
+        const audioBuffer = fs.readFileSync(filePath);
+        const audioBase64 = audioBuffer.toString('base64');
+        const audioDataUrl = `data:audio/webm;base64,${audioBase64}`;
+
+        // Cleanup uploaded file
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
         return successResponse(res, 201, 'Transcription and analysis complete', {
             text: studentText,
             autoAnalysis: metrics,
             status: metrics?.status || "success",
-            audioUrl: `/api/upload/file/${req.file.filename}` // Return original file path for playback
+            audioUrl: audioDataUrl // Return Base64 instead of file path
         });
 
     } catch (error) {
@@ -415,7 +429,7 @@ Format the output clearly with headers.`;
             sophistication: metrics?.lexicalSophistication || 0,
             density: metrics?.lexicalDensity || 0,
             masteryWords: metrics?.matches || [],
-            audioUrl: audioUrl
+            audioBase64: audioUrl && audioUrl.startsWith('data:') ? audioUrl.split(',')[1] : null
         });
 
         await session.save();
@@ -428,7 +442,7 @@ Format the output clearly with headers.`;
             lexicalDensity: metrics?.lexicalDensity || 0,
             lexicalSophistication: metrics?.lexicalSophistication || 0,
             advancedWords: metrics?.matches || [],
-            audioUrl: audioUrl,
+            audioBase64: audioUrl && audioUrl.startsWith('data:') ? audioUrl.split(',')[1] : null,
             highlightedTranscript: metrics?.highlightedTranscript || [],
             wordCount: metrics?.wordCount || 0,
             uniqueWordCount: metrics?.uniqueWordCount || 0,

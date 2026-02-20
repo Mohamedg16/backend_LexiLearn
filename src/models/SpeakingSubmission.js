@@ -18,6 +18,9 @@ const speakingSubmissionSchema = new mongoose.Schema({
     audioUrl: {
         type: String
     },
+    audioBase64: {
+        type: String
+    },
     transcription: {
         type: String,
         required: true
