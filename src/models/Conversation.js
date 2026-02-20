@@ -26,6 +26,10 @@ const conversationSchema = new mongoose.Schema({
         type: String,
         trim: true,
         maxlength: [200, 'Title cannot exceed 200 characters']
+    },
+    voiceCorrectionCount: {
+        type: Number,
+        default: 0
     }
 }, {
     timestamps: true
