@@ -249,7 +249,7 @@ const getAllStudentConversations = async (req, res, next) => {
                 path: 'studentId',
                 select: 'userId',
                 populate: { path: 'userId', select: 'name email fullName' }
-            }).lean()
+            }).populate('conversationId').lean()
         ]);
 
         const chatLogs = conversations.map(c => {
