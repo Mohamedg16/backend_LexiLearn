@@ -8,25 +8,11 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const OpenAI = require('openai');
 
-const Bytez = require('bytez.js');
-const BYTEZ_API_KEY = process.env.BYTEZ_API_KEY;
-// Initialize Bytez client
-const bytezSdk = new Bytez(BYTEZ_API_KEY);
-const bytezModel = bytezSdk.model("openai/gpt-4o");
-// AssemblyAI Config
-const ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY;
-const ASSEMBLY_API_KEY_SCAFFOLDING = process.env.ASSEMBLYAI_API_KEY_SCAFFOLDING;
-const ASSEMBLY_BASE_URL = "https://api.assemblyai.com/v2";
-
-const assemblyHeaders = {
-    authorization: ASSEMBLY_API_KEY,
-    "content-type": "application/json"
-};
-
-const scaffoldingHeaders = {
-    authorization: ASSEMBLY_API_KEY_SCAFFOLDING || ASSEMBLY_API_KEY
-};
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+});
 
 /**
  * Helper to spawn Python process and communicate via stdin/stdout
@@ -84,166 +70,16 @@ function executePythonBridge(data) {
         pythonProcess.on('close', () => clearTimeout(timeout));
     });
 }
-
 /**
- * Shared Helper for AssemblyAI LeMUR (Logic using AssemblyAI key)
+ * Shared Helper for Counting Corrections in History
  */
-async function generateTutorResponseLeMUR(transcriptId, systemPrompt, userText) {
-    try {
-        console.log(`--- 🧠 Calling LeMUR for transcript: ${transcriptId} ---`);
-        const response = await axios.post(`https://api.assemblyai.com/v2/lemur/task`, {
-            transcript_ids: [transcriptId],
-            prompt: `You are the tutor. Based on the transcript of the student's speech, provide your response following these rules: ${systemPrompt}. Provide only your reply to the student.`,
-            final_model: "default"
-        }, { headers: assemblyHeaders });
-
-        return response.data.response;
-    } catch (err) {
-        console.error("LeMUR API Error:", err.response?.data || err.message);
-        // Fallback to Bytez if LeMUR fails
-        return null;
-    }
-}
-
-/**
- * Shared Helper for Bytez AI Generation
- */
-async function generateTutorResponse(messages) {
-    const { error, output } = await bytezModel.run(messages);
-    if (error) {
-        console.error("Bytez API Error:", error);
-        throw new Error("Bytez API returned an error");
-    }
-
-    let aiResponse = "";
-    if (typeof output === 'string') aiResponse = output;
-    else if (output?.content) aiResponse = output.content;
-    else if (output?.choices?.[0]?.message) aiResponse = output.choices[0].message.content;
-    else aiResponse = JSON.stringify(output);
-    return aiResponse;
-}
-
-/**
- * Shared Logic for Friendly Tutor Processing
- */
-const processTutorLogic = async (message, topic, history = [], isVocal = false) => {
-    let sanitizedHistory = [];
-    try {
-        if (typeof history === 'string') {
-            sanitizedHistory = JSON.parse(history);
-        } else if (Array.isArray(history)) {
-            sanitizedHistory = history;
-        }
-    } catch (e) {
-        sanitizedHistory = [];
-    }
-
-    const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
-Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
-
-FREE TOPIC MODE:
-You can discuss any topic the student wants. Be curious, engaging, and clear.
-
-LINGUISTIC CORRECTION RULE:
-If the student makes any grammar, vocabulary, or spelling mistakes:
-1. Provide a correction block at the very top of your response using this exact format:
-   You said: "[Quote the mistake]"
-   Correct form: "[Provide the corrected version]"
-   Explanation: "[Briefly explain the rule]"
-   Example: "[Provide another correct example sentence]"
-2. Then, continue the conversation naturally in a new paragraph.
-
-IMPORTANT:
-- If there are NO mistakes, do NOT include the correction block.
-- Maintain a teacher tone (clear and educational).
-- ${isVocal ? 'This is a VOICE interaction. Keep your response concise as it will be read aloud.' : 'This is a TEXT interaction.'}
-- For VOICE input, if you notice pronunciation issues in the transcription, mention them naturally.
-- Stay supportive and helpful!`;
-
-    const messages = [
-        { role: "system", content: systemPrompt },
-        ...sanitizedHistory.slice(-10).map(m => ({
-            role: m.role || 'user',
-            content: m.content || m.text || ''
-        })),
-        { role: "user", content: message }
-    ];
-
-    return await generateTutorResponse(messages);
-};
-
-/**
- * TTS Helper using Bytez
- */
-const synthesizeSpeech = async (text) => {
-    try {
-        // Cleaning text for better TTS (removing markdown icons/blocks)
-        const cleanText = text.replace(/📝|💡|✅|---/g, '').trim();
-
-        // Using a reliable model on Bytez
-        const ttsModel = bytezSdk.model("suno/bark-small");
-        const { error, output } = await ttsModel.run(cleanText);
-
-        if (error || !output) {
-            console.error("Bytez TTS Error:", error || "Empty output");
-            // Secondary fallback
-            const fallbackModel = bytezSdk.model("facebook/mms-tts-eng");
-            const fallbackRes = await fallbackModel.run(cleanText);
-            if (fallbackRes.error || !fallbackRes.output) return null;
-            return await saveAudioBuffer(fallbackRes.output);
-        }
-
-        const audioUrl = await saveAudioBuffer(output);
-        console.log("🔊 AI Audio Generated:", audioUrl);
-        return audioUrl;
-    } catch (err) {
-        console.error("TTS Synthesis failed:", err);
-        return null;
-    }
-};
-
-/**
- * Save buffer to the uploads/audio directory
- */
-const saveAudioBuffer = async (buffer) => {
-    try {
-        const fileName = `ai_res_${crypto.randomUUID()}.mp3`;
-        // Save to the main uploads folder
-        const audioDir = path.join(__dirname, '../../uploads');
-
-        console.log(`💾 Saving AI audio to: ${audioDir}/${fileName}`);
-
-        if (!fs.existsSync(audioDir)) {
-            fs.mkdirSync(audioDir, { recursive: true });
-        }
-
-        const filePath = path.join(audioDir, fileName);
-
-        // Ensure buffer is actually a buffer and has content
-        if (!buffer || (Buffer.isBuffer(buffer) && buffer.length === 0)) {
-            console.error("❌ saveAudioBuffer: Null or empty buffer received");
-            return null;
-        }
-
-        const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-
-        // Final sanity check: if the data is just text (like an error message), don't treat it as audio
-        if (data.length < 500) { // Most valid MP3s/audio files are larger than this
-            const textSample = data.toString('utf8').toLowerCase();
-            if (textSample.includes('error') || textSample.includes('invalid') || textSample.includes('model')) {
-                console.error("❌ saveAudioBuffer: Buffer seems to contain text error, not audio");
-                return null;
-            }
-        }
-
-        await fsExtra.writeFile(filePath, data);
-
-        // Use the dedicated file retrieval route that sets correct MIME types and CORS
-        return `/api/upload/file/${fileName}`;
-    } catch (err) {
-        console.error("❌ saveAudioBuffer Error:", err);
-        return null;
-    }
+const countCorrectionsInHistory = (history) => {
+    if (!Array.isArray(history)) return 0;
+    // Count how many times the assistant messages contain "Correction:" or "[CORRECTED]"
+    return history.filter(msg =>
+        msg.role === 'assistant' &&
+        (msg.content.includes('Correction:') || msg.content.includes('[CORRECTED]'))
+    ).length;
 };
 
 /**
@@ -252,14 +88,52 @@ const saveAudioBuffer = async (buffer) => {
 const chatTutor = async (req, res, next) => {
     try {
         const { message, topic, history = [] } = req.body;
-        const aiResponse = await processTutorLogic(message, topic, history, false);
 
-        // Text interaction only: No audio generation
+        let sanitizedHistory = [];
+        if (Array.isArray(history)) sanitizedHistory = history;
+        else if (typeof history === 'string') try { sanitizedHistory = JSON.parse(history); } catch (e) { }
+
+        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
+Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
+
+LINGUISTIC CORRECTION RULE:
+If the student makes any grammar, vocabulary, or spelling mistakes:
+1. Provide a correction block at the very top of your response using this exact format:
+   📝 Correction: [Provide the corrected sentence]
+   💡 Explanation: [Briefly explain the mistake]
+   ✅ Example: [Another correct example sentence]
+2. Then, continue the conversation naturally in a new paragraph.
+
+IMPORTANT:
+- If there are NO mistakes, do NOT include the correction block.
+- Maintain a teacher tone (clear and educational).
+- This is a TEXT interaction.`;
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            ...sanitizedHistory.slice(-10).map(m => ({
+                role: m.role || 'user',
+                content: m.content || m.text || ''
+            })),
+            { role: "user", content: message }
+        ];
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: messages,
+        });
+
+        const aiResponse = completion.choices[0].message.content;
+
         return successResponse(res, 200, 'Tutor response generated', {
             response: aiResponse,
             audioUrl: null
         });
     } catch (error) {
+        console.error("Chat Tutor Error:", error);
+        if (error.status === 429) {
+            return res.status(429).json({ success: false, message: "AI service is busy." });
+        }
         next(error);
     }
 };
@@ -268,7 +142,7 @@ const chatTutor = async (req, res, next) => {
  * Phase 1: Socratic Tutor Chat (Vocal)
  */
 const chatTutorVocal = async (req, res, next) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    // res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'); // Not strictly needed if returning base64
     const filePath = req.file?.path;
     try {
         if (!req.file) {
@@ -276,103 +150,83 @@ const chatTutorVocal = async (req, res, next) => {
         }
 
         const { topic, history = "[]" } = req.body;
-
-        // --- STEP 1: Upload to AssemblyAI ---
-        console.log("--- 🎙️ Uploading to AssemblyAI ---");
-        const audioBuffer = fs.readFileSync(filePath);
-        const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioBuffer, {
-            headers: {
-                ...assemblyHeaders,
-                "content-type": "application/octet-stream"
-            }
-        });
-
-        const uploadUrl = uploadResponse.data.upload_url;
-        if (!uploadUrl) throw new Error("AssemblyAI upload failed - no URL returned.");
-
-        // --- STEP 2: Create Transcription ---
-        console.log("--- 📝 Creating Transcription ---");
-        const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
-            audio_url: uploadUrl,
-            language_code: "en",
-            speech_models: ["universal-2"]
-        }, {
-            headers: {
-                ...assemblyHeaders,
-                "content-type": "application/json"
-            }
-        });
-
-        const transcriptId = transcriptReq.data.id;
-        let transcribedText = "";
-
-        // --- STEP 3: Polling ---
-        console.log(`--- ⏳ Polling Transcription: ${transcriptId} ---`);
-        let pollingAttempts = 0;
-        while (pollingAttempts < 30) {
-            const pollingRes = await axios.get(`${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`, {
-                headers: assemblyHeaders
-            });
-            const { status, text, error: assemblyError } = pollingRes.data;
-
-            if (status === "completed") {
-                transcribedText = text;
-                break;
-            } else if (status === "error") {
-                throw new Error(`AssemblyAI Error: ${assemblyError}`);
-            }
-
-            await new Promise(r => setTimeout(r, 1000));
-            pollingAttempts++;
-        }
-
-        if (!transcribedText) {
-            throw new Error("No speech detected. Please speak closer to the mic.");
-        }
-
-        console.log(`✅ Transcription Complete: "${transcribedText}"`);
-
-        // --- STEP 4: Process with AI Logic ---
-        // For voice interactions, we prefer AssemblyAI LeMUR to satisfy "use ASSEMBLYAI_API_KEY for speaking"
-        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
-Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
-If the student makes any grammar, vocabulary, or spelling mistakes, provide a correction block at the top:
-You said: "[Quote]"
-Correct form: "[Correction]"
-Explanation: "[Rule]"
-Example: "[Example]"
-Maintain clear and educational tone. Keep it concise for voice.`;
-
-        let aiResponse = await generateTutorResponseLeMUR(transcriptId, systemPrompt, transcribedText);
-
-        // Fallback to Bytez logic if LeMUR is not available/fails
-        if (!aiResponse) {
-            aiResponse = await processTutorLogic(transcribedText, topic, history, true);
-        }
-
-        // --- STEP 5: Convert response to speech using Bytez (TTS) ---
-        let audioUrl = null;
+        let sanitizedHistory = [];
         try {
-            audioUrl = await synthesizeSpeech(aiResponse);
-        } catch (ttsErr) {
-            console.error("TTS conversion failed:", ttsErr);
+            sanitizedHistory = typeof history === 'string' ? JSON.parse(history) : history;
+        } catch (e) { sanitizedHistory = []; }
+
+        // --- STEP 1: Transcribe with Whisper ---
+        const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(filePath),
+            model: "whisper-1",
+            language: "en"
+        });
+        const transcribedText = transcription.text;
+
+        // --- STEP 2: Logic with Correction Limit ---
+        const correctionCount = countCorrectionsInHistory(sanitizedHistory);
+        const MAX_CORRECTIONS = 5;
+
+        let correctionInstruction = "";
+        if (correctionCount < MAX_CORRECTIONS) {
+            correctionInstruction = `
+If the student makes any grammar, vocabulary, or pronunciation mistakes:
+1. Start your response strictly with the tag "[CORRECTED] ".
+2. Then, politely mention the correction and brief explanation (suitable for spoken conversion).
+3. Then continue the conversation.
+If NO mistakes, just respond naturally without the tag.`;
+        } else {
+            correctionInstruction = `
+Do NOT correct the student's grammar anymore. Focus on the conversation flow only. Ignore mistakes.`;
         }
 
-        // Cleanup temp file
+        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
+Act naturally and conversationally.
+This is a VOICE interaction. Keep your response concise as it will be read aloud.
+${correctionInstruction}`;
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            ...sanitizedHistory.slice(-10).map(m => ({
+                role: m.role || 'user',
+                content: m.content || m.text || ''
+            })),
+            { role: "user", content: transcribedText }
+        ];
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: messages,
+        });
+
+        let aiResponse = completion.choices[0].message.content;
+
+        // Remove the internal tag before TSS
+        aiResponse = aiResponse.replace('[CORRECTED]', '').trim();
+
+        // --- STEP 3: TTS ---
+        const mp3 = await openai.audio.speech.create({
+            model: "tts-1",
+            voice: "alloy",
+            input: aiResponse,
+        });
+
+        const buffer = Buffer.from(await mp3.arrayBuffer());
+        const base64Audio = buffer.toString('base64');
+        const audioData = `data:audio/mpeg;base64,${base64Audio}`;
+
+        // Cleanup
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
         return successResponse(res, 200, 'Vocal response generated', {
             userText: transcribedText,
-            response: aiResponse,
-            audioUrl: audioUrl
+            response: aiResponse, // We still return text for the frontend to store in history, but frontend should hide it if needed
+            audioUrl: audioData // Base64
         });
     } catch (error) {
-        console.error("❌ chatTutorVocal Error:", error.response?.data || error.message);
+        console.error("❌ chatTutorVocal Error:", error);
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        return res.status(500).json({
-            success: false,
-            message: error.message || "Voice processing failed."
-        });
+        next(error);
     }
 };
 
@@ -380,7 +234,7 @@ Maintain clear and educational tone. Keep it concise for voice.`;
  * Phase 2 & 3: Independent Performance (Transcription) + Analysis Handover
  */
 const transcribeAudio = async (req, res, next) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    // res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No audio file uploaded' });
@@ -395,44 +249,17 @@ const transcribeAudio = async (req, res, next) => {
 
         let studentText = "";
         try {
-            console.log("--- 🎙️ AssemblyAI Transcription Started ---");
-
-            // 1. Upload to AssemblyAI
-            const audioData = await fsExtra.readFile(filePath);
-            const uploadResponse = await axios.post(`${ASSEMBLY_BASE_URL}/upload`, audioData, {
-                headers: { ...assemblyHeaders, "content-type": "application/octet-stream" }
+            console.log("--- 🎙️ OpenAI Whisper Transcription Started ---");
+            const transcription = await openai.audio.transcriptions.create({
+                file: fs.createReadStream(filePath),
+                model: "whisper-1",
+                language: "en"
             });
-            const assemblyAudioUrl = uploadResponse.data.upload_url;
-
-            // 2. Request Transcript
-            const transcriptReq = await axios.post(`${ASSEMBLY_BASE_URL}/transcript`, {
-                audio_url: assemblyAudioUrl,
-                language_code: "en",
-                speech_models: ["universal-2"]
-            }, { headers: assemblyHeaders });
-
-            const transcriptId = transcriptReq.data.id;
-            const pollingEndpoint = `${ASSEMBLY_BASE_URL}/transcript/${transcriptId}`;
-
-            // 3. Polling
-            console.log(`⏳ Transcription ${transcriptId} in progress...`);
-            while (true) {
-                const pollingResponse = await axios.get(pollingEndpoint, { headers: assemblyHeaders });
-                const result = pollingResponse.data;
-
-                if (result.status === "completed") {
-                    studentText = result.text;
-                    console.log("✅ AssemblyAI Transcription Complete");
-                    break;
-                } else if (result.status === "error") {
-                    throw new Error(`AssemblyAI Error: ${result.error}`);
-                } else {
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-            }
+            studentText = transcription.text;
+            console.log(`✅ Transcription Complete: "${studentText.substring(0, 50)}..."`);
 
         } catch (transcribeError) {
-            console.error("❌ AssemblyAI Engine Error:", transcribeError.message);
+            console.error("❌ Whisper Transcription Error:", transcribeError);
             return res.status(500).json({
                 success: false,
                 message: "Transcription service encountered an error."
@@ -457,10 +284,11 @@ const transcribeAudio = async (req, res, next) => {
             text: studentText,
             autoAnalysis: metrics,
             status: metrics?.status || "success",
-            audioUrl: `/api/upload/file/${req.file.filename}`
+            audioUrl: `/api/upload/file/${req.file.filename}` // Return original file path for playback
         });
 
     } catch (error) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         next(error);
     }
 };
