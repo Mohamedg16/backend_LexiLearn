@@ -8,6 +8,7 @@ const { uploadSingle } = require('../middleware/upload');
 // Phase 1: Tutor chat
 router.post('/tutor', authenticate, authorize('student'), lexilearnController.chatTutor);
 router.post('/tutor-vocal', authenticate, authorize('student'), uploadSingle('audio'), lexilearnController.chatTutorVocal);
+router.post('/finalize', authenticate, authorize('student'), lexilearnController.finalizeScaffolding);
 
 // Phase 2: Transcribe audio
 router.post('/transcribe', authenticate, authorize('student'), uploadSingle('audio'), lexilearnController.transcribeAudio);

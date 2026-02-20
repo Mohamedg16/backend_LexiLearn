@@ -262,7 +262,7 @@ const getAllStudentConversations = async (req, res, next) => {
                 preview: c.messages && c.messages.length > 0 ? c.messages[c.messages.length - 1].content : '',
                 messageCount: c.messages ? c.messages.length : 0,
                 date: c.updatedAt,
-                ai_feedback: lastAssistantMsg ? lastAssistantMsg.content : 'No feedback available',
+                ai_feedback: c.finalReport || (lastAssistantMsg ? lastAssistantMsg.content : 'No feedback available'),
                 details: c
             };
         });

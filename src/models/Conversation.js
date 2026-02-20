@@ -30,6 +30,10 @@ const conversationSchema = new mongoose.Schema({
     voiceCorrectionCount: {
         type: Number,
         default: 0
+    },
+    finalReport: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: true

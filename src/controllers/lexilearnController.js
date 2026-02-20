@@ -3,6 +3,7 @@ const fsExtra = require('fs-extra');
 const SpeakingSubmission = require('../models/SpeakingSubmission');
 const PracticeSession = require('../models/PracticeSession');
 const Student = require('../models/Student');
+const Conversation = require('../models/Conversation');
 const { successResponse } = require('../utils/helpers');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -87,15 +88,32 @@ const countCorrectionsInHistory = (history) => {
  */
 const chatTutor = async (req, res, next) => {
     try {
-        const { message, topic, history = [] } = req.body;
+        const { message, topic, history = [], conversationId } = req.body;
+        const student = await Student.findOne({ userId: req.user._id });
 
+        let conversation;
+        if (conversationId) {
+            conversation = await Conversation.findById(conversationId);
+        } else {
+            conversation = new Conversation({
+                studentId: student ? student._id : req.user._id,
+                messages: [],
+                title: topic || (message.substring(0, 30) + (message.length > 30 ? '...' : ''))
+            });
+        }
+
+        // Add user message to local history for prompt
         let sanitizedHistory = [];
         if (Array.isArray(history)) sanitizedHistory = history;
         else if (typeof history === 'string') try { sanitizedHistory = JSON.parse(history); } catch (e) { }
 
-        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
-Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
+        // --- STEP 2: Logic with Correction Limit ---
+        const correctionCount = countCorrectionsInHistory(sanitizedHistory);
+        const MAX_CORRECTIONS = 5;
 
+        let correctionInstruction = "";
+        if (correctionCount < MAX_CORRECTIONS) {
+            correctionInstruction = `
 LINGUISTIC CORRECTION RULE:
 If the student makes any grammar, vocabulary, or spelling mistakes:
 1. Provide a correction block at the very top of your response using this exact format:
@@ -103,11 +121,17 @@ If the student makes any grammar, vocabulary, or spelling mistakes:
    💡 Explanation: [Briefly explain the mistake]
    ✅ Example: [Another correct example sentence]
 2. Then, continue the conversation naturally in a new paragraph.
+If NO mistakes, do NOT include the correction block.`;
+        } else {
+            correctionInstruction = `
+Do NOT correct the student's grammar anymore. Focus on the conversation flow only. Ignore mistakes.`;
+        }
 
-IMPORTANT:
-- If there are NO mistakes, do NOT include the correction block.
-- Maintain a teacher tone (clear and educational).
-- This is a TEXT interaction.`;
+        const systemPrompt = `You are a friendly and encouraging English language tutor on LexiLearn. 
+Act naturally and conversationally, just like ChatGPT, but always stay in your role as a supportive tutor.
+Maintain a teacher tone (clear and educational).
+This is a TEXT interaction.
+${correctionInstruction}`;
 
         const messages = [
             { role: "system", content: systemPrompt },
@@ -125,8 +149,14 @@ IMPORTANT:
 
         const aiResponse = completion.choices[0].message.content;
 
+        // Persist messages to DB
+        conversation.messages.push({ role: 'user', content: message });
+        conversation.messages.push({ role: 'assistant', content: aiResponse });
+        await conversation.save();
+
         return successResponse(res, 200, 'Tutor response generated', {
             response: aiResponse,
+            conversationId: conversation._id,
             audioUrl: null
         });
     } catch (error) {
@@ -149,7 +179,20 @@ const chatTutorVocal = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Audio stream was empty.' });
         }
 
-        const { topic, history = "[]" } = req.body;
+        const { topic, history = "[]", conversationId } = req.body;
+        const student = await Student.findOne({ userId: req.user._id });
+
+        let conversation;
+        if (conversationId) {
+            conversation = await Conversation.findById(conversationId);
+        } else {
+            conversation = new Conversation({
+                studentId: student ? student._id : req.user._id,
+                messages: [],
+                title: topic || "Voice Scaffolding Session"
+            });
+        }
+
         let sanitizedHistory = [];
         try {
             sanitizedHistory = typeof history === 'string' ? JSON.parse(history) : history;
@@ -201,8 +244,18 @@ ${correctionInstruction}`;
 
         let aiResponse = completion.choices[0].message.content;
 
+        // Check for correction and track in Conversation model if needed
+        if (aiResponse.includes('[CORRECTED]')) {
+            conversation.voiceCorrectionCount = (conversation.voiceCorrectionCount || 0) + 1;
+        }
+
         // Remove the internal tag before TSS
         aiResponse = aiResponse.replace('[CORRECTED]', '').trim();
+
+        // Persist messages to DB
+        conversation.messages.push({ role: 'user', content: transcribedText });
+        conversation.messages.push({ role: 'assistant', content: aiResponse });
+        await conversation.save();
 
         // --- STEP 3: TTS ---
         const mp3 = await openai.audio.speech.create({
@@ -220,7 +273,8 @@ ${correctionInstruction}`;
 
         return successResponse(res, 200, 'Vocal response generated', {
             userText: transcribedText,
-            response: aiResponse, // We still return text for the frontend to store in history, but frontend should hide it if needed
+            response: aiResponse,
+            conversationId: conversation._id,
             audioUrl: audioData // Base64
         });
     } catch (error) {
@@ -326,6 +380,33 @@ const saveSession = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Student not found' });
         }
 
+        // --- Generate AI Feedback for Phase 2 ---
+        let aiFeedback = "No evaluation generated.";
+        try {
+            const systemPrompt = `You are a Senior Linguistic Evaluator at LexiLearn.
+Analyze the following transcript from a student's INDEPENDENT speech practice.
+Generate a structured feedback report.
+
+STRUCTURE:
+1. Summary: A brief overview (2-3 sentences) of the student's speaking performance.
+2. Grammar & Accuracy: Highlight specific patterns of mistakes the student made.
+3. Lexical Range: Evaluate their vocabulary. Mention the variety and complexity.
+4. Suggested Level: Suggest a CEFR level (A1-C2).
+
+Format the output clearly with headers.`;
+
+            const completion = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: `Topic: ${topic}\nTranscript: ${transcript}` }
+                ],
+            });
+            aiFeedback = completion.choices[0].message.content;
+        } catch (aiErr) {
+            console.error("AI Feedback Generation Error:", aiErr);
+        }
+
         const session = new PracticeSession({
             studentId: student._id,
             topic: topic || 'General Practice',
@@ -350,12 +431,83 @@ const saveSession = async (req, res, next) => {
             audioUrl: audioUrl,
             highlightedTranscript: metrics?.highlightedTranscript || [],
             wordCount: metrics?.wordCount || 0,
-            uniqueWordCount: metrics?.uniqueWordCount || 0
+            uniqueWordCount: metrics?.uniqueWordCount || 0,
+            advice: aiFeedback // Save generated feedback here
         });
         await submission.save();
 
-        return successResponse(res, 201, 'Session saved successfully', session);
+        return successResponse(res, 201, 'Session saved successfully', {
+            session,
+            aiFeedback
+        });
     } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Finalize Scaffolding Session: Generate structured AI evaluation
+ * POST /lexilearn/finalize
+ */
+const finalizeScaffolding = async (req, res, next) => {
+    try {
+        const { conversationId, history = [] } = req.body;
+        const student = await Student.findOne({ userId: req.user._id });
+
+        let conversation;
+        if (conversationId) {
+            conversation = await Conversation.findById(conversationId);
+        } else {
+            // Fallback for sessions not yet persisted correctly
+            conversation = new Conversation({
+                studentId: student ? student._id : req.user._id,
+                messages: Array.isArray(history) ? history.map(m => ({
+                    role: m.role,
+                    content: m.content || m.text
+                })) : []
+            });
+        }
+
+        const messages = conversation.messages;
+        if (messages.length === 0) {
+            return res.status(400).json({ success: false, message: "No conversation history to analyze." });
+        }
+
+        const systemPrompt = `You are a Senior Linguistic Evaluator at LexiLearn.
+Analyze the provided chat history between a student and an AI tutor.
+Generate a structured feedback report in clear, encouraging, and professional language.
+
+STRUCTURE:
+1. Summary: A brief overview (2-3 sentences) of the student's performance and engagement.
+2. Grammar & Accuracy: Highlight specific patterns of mistakes the student made and how they were corrected. (Note: Only 5 corrections were allowed per session).
+3. Lexical Range: Evaluate their vocabulary. Did they use basic words, or did they successfully incorporate the 'Advanced' (Tier 2/3) words provided in their study bank? Provide examples.
+4. Suggested Level: Suggest a CEFR level (A1, A2, B1, B2, C1, or C2) based on this interaction.
+
+Format the output clearly with headers. Do NOT use markdown code blocks like \`\`\`json. Just plain structured text with headers.`;
+
+        const messagesForAI = [
+            { role: "system", content: systemPrompt },
+            ...messages.slice(-20).map(m => ({ role: m.role, content: m.content }))
+        ];
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: messagesForAI,
+        });
+
+        const finalReport = completion.choices[0].message.content;
+
+        // Save the final report to the conversation
+        conversation.finalReport = finalReport;
+        await conversation.save();
+
+        return successResponse(res, 200, 'Final evaluation generated', {
+            finalReport,
+            conversationId: conversation._id
+        });
+
+    } catch (error) {
+        console.error("❌ Finalize Scaffolding Error:", error);
         next(error);
     }
 };
@@ -365,5 +517,6 @@ module.exports = {
     chatTutorVocal,
     transcribeAudio,
     analyzeSpeech,
-    saveSession
+    saveSession,
+    finalizeScaffolding
 };
