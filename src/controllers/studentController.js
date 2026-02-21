@@ -203,6 +203,35 @@ const getSpeakingHistory = async (req, res, next) => {
 };
 
 /**
+ * Get speaking history detail
+ * GET /api/students/speaking-history/:id
+ */
+const getSpeakingHistoryDetail = async (req, res, next) => {
+    try {
+        const student = await Student.findOne({ userId: req.user._id });
+        if (!student) {
+            return res.status(404).json({ success: false, message: 'Student not found' });
+        }
+
+        const submission = await SpeakingSubmission.findOne({
+            _id: req.params.id,
+            studentId: student._id
+        })
+            .populate('conversationId')
+            .populate('taskId', 'title prompt')
+            .lean();
+
+        if (!submission) {
+            return res.status(404).json({ success: false, message: 'Submission not found' });
+        }
+
+        return successResponse(res, 200, 'Speaking history detail retrieved', submission);
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Get all available videos (from Lessons and standalone Video library)
  * GET /api/students/videos
  */
@@ -324,6 +353,7 @@ module.exports = {
     markLessonComplete,
     getStatistics,
     getSpeakingHistory,
+    getSpeakingHistoryDetail,
     deleteSpeakingHistory,
     getAIHistory,
     getAllVideos

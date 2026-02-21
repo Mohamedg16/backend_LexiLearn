@@ -24,6 +24,7 @@ router.post('/progress/lesson-complete', studentController.markLessonComplete);
 // Statistics
 router.get('/statistics', studentController.getStatistics);
 router.get('/speaking-history', studentController.getSpeakingHistory);
+router.get('/speaking-history/:id', studentController.getSpeakingHistoryDetail);
 router.delete('/speaking-history/:id', studentController.deleteSpeakingHistory);
 router.get('/ai-history', studentController.getAIHistory);
 router.get('/videos', studentController.getAllVideos);
