@@ -527,11 +527,57 @@ Format the output clearly with headers. Do NOT use markdown code blocks like \`\
     }
 };
 
+/**
+ * Generate topic-specific vocabulary pairs
+ * POST /lexilearn/vocabulary
+ */
+const generateVocabulary = async (req, res, next) => {
+    try {
+        const { topic } = req.body;
+        if (!topic) {
+            return res.status(400).json({ success: false, message: 'Topic is required' });
+        }
+
+        const systemPrompt = `You are a vocabulary expert. Generate exactly 4 pairs of words related to the topic "${topic}".
+Each pair should have:
+- tier1: A basic/common word
+- tier3: An advanced/sophisticated synonym
+
+Return ONLY a valid JSON array with this exact structure:
+[{"tier1": "word1", "tier3": "advanced1"}, {"tier1": "word2", "tier3": "advanced2"}, {"tier1": "word3", "tier3": "advanced3"}, {"tier1": "word4", "tier3": "advanced4"}]
+
+No explanations, no markdown, just the JSON array.`;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "system", content: systemPrompt }],
+            temperature: 0.7
+        });
+
+        const responseText = completion.choices[0].message.content.trim();
+        const vocabulary = JSON.parse(responseText);
+
+        return successResponse(res, 200, 'Vocabulary generated', { vocabulary });
+    } catch (error) {
+        console.error('Vocabulary generation error:', error);
+        // Fallback vocabulary
+        return successResponse(res, 200, 'Vocabulary generated (fallback)', {
+            vocabulary: [
+                { tier1: 'big', tier3: 'colossal' },
+                { tier1: 'small', tier3: 'minuscule' },
+                { tier1: 'happy', tier3: 'jubilant' },
+                { tier1: 'bad', tier3: 'deleterious' }
+            ]
+        });
+    }
+};
+
 module.exports = {
     chatTutor,
     chatTutorVocal,
     transcribeAudio,
     analyzeSpeech,
     saveSession,
-    finalizeScaffolding
+    finalizeScaffolding,
+    generateVocabulary
 };

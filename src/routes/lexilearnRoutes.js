@@ -6,6 +6,7 @@ const authorize = require('../middleware/roleGuard');
 const { uploadSingle } = require('../middleware/upload');
 
 // Phase 1: Tutor chat
+router.post('/vocabulary', authenticate, authorize('student'), lexilearnController.generateVocabulary);
 router.post('/tutor', authenticate, authorize('student'), lexilearnController.chatTutor);
 router.post('/tutor-vocal', authenticate, authorize('student'), uploadSingle('audio'), lexilearnController.chatTutorVocal);
 router.post('/finalize', authenticate, authorize('student'), lexilearnController.finalizeScaffolding);
