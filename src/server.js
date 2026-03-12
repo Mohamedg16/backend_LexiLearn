@@ -34,43 +34,109 @@ app.set('trust proxy', 1);
 // Connect to MongoDB
 connectDB();
 
-// Security middleware
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginEmbedderPolicy: false
-}));
+// ============================================================================
+// CORS CONFIGURATION - MUST BE BEFORE ALL ROUTES
+// ============================================================================
 
-// CORS configuration
-// CORS configuration
-// CORS configuration
+// Define allowed origins
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:3000',
     'https://lexilearn-lige.onrender.com',
-    'https://lexilearn.onrender.com', // Added common variation
+    'https://lexilearn.onrender.com',
     process.env.FRONTEND_URL
-].filter(Boolean);
+].filter(Boolean); // Remove undefined values
 
+console.log('🔐 CORS Configuration:');
+console.log('   Allowed Origins:', allowedOrigins);
+console.log('   Environment:', process.env.NODE_ENV);
+
+// CORS options with proper configuration
 const corsOptions = {
     origin: function (origin, callback) {
-        // More permissive for development and Render subdomains
-        if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.includes('onrender.com') || process.env.NODE_ENV === 'development') {
-            callback(null, true);
-        } else {
-            console.log('Blocked by CORS:', origin);
-            callback(new Error('Not allowed by CORS'));
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) {
+            console.log('✅ CORS: Allowing request with no origin (Postman/Mobile)');
+            return callback(null, true);
         }
+
+        // Check if origin is in allowed list
+        if (allowedOrigins.includes(origin)) {
+            console.log('✅ CORS: Allowing origin:', origin);
+            return callback(null, true);
+        }
+
+        // Allow all Render subdomains in production
+        if (origin.includes('.onrender.com')) {
+            console.log('✅ CORS: Allowing Render subdomain:', origin);
+            return callback(null, true);
+        }
+
+        // Allow localhost in development
+        if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
+            console.log('✅ CORS: Allowing localhost in development:', origin);
+            return callback(null, true);
+        }
+
+        // Block all other origins
+        console.log('❌ CORS: Blocking origin:', origin);
+        callback(new Error(`CORS policy: Origin ${origin} is not allowed`));
     },
-    credentials: true,
-    optionsSuccessStatus: 200
+    credentials: true, // Allow cookies and authorization headers
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // Allowed HTTP methods
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'Access-Control-Request-Method',
+        'Access-Control-Request-Headers'
+    ],
+    exposedHeaders: ['Set-Cookie'], // Expose cookies to frontend
+    optionsSuccessStatus: 200, // For legacy browsers
+    preflightContinue: false, // Pass preflight to next handler
+    maxAge: 86400 // Cache preflight for 24 hours
 };
+
+// Apply CORS middleware BEFORE all other middleware
 app.use(cors(corsOptions));
 
-// Global header to allow cross-origin media loading
+// Handle preflight OPTIONS requests explicitly
+app.options('*', cors(corsOptions));
+
+// Additional CORS headers for all responses
 app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Set CORS headers for allowed origins
+    if (origin && (allowedOrigins.includes(origin) || origin.includes('.onrender.com'))) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+        res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
+    
+    // Allow cross-origin resource loading (for media files)
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    
     next();
 });
+
+console.log('✅ CORS middleware configured successfully');
+
+// ============================================================================
+// SECURITY MIDDLEWARE - AFTER CORS
+// ============================================================================
+
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false // Disable CSP to avoid blocking cross-origin requests
+}));
 
 // Serve static files from uploads directory - IMPORTANT: Matches the file return path
 const UPLOADS_PATH = path.resolve(process.cwd(), 'uploads');
@@ -108,7 +174,27 @@ app.get('/health', (req, res) => {
     res.status(200).json({
         success: true,
         message: 'Server is running',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        cors: {
+            configured: true,
+            allowedOrigins: allowedOrigins,
+            requestOrigin: req.headers.origin || 'No origin header'
+        }
+    });
+});
+
+// CORS test endpoint
+app.get('/api/cors-test', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'CORS is working correctly!',
+        requestOrigin: req.headers.origin || 'No origin',
+        allowedOrigins: allowedOrigins,
+        headers: {
+            'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
+            'access-control-allow-credentials': res.getHeader('access-control-allow-credentials')
+        }
     });
 });
 
