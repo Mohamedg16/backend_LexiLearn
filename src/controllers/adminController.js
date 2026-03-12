@@ -9,9 +9,17 @@ const Payment = require('../models/Payment');
 const SpeakingSubmission = require('../models/SpeakingSubmission');
 const SystemLog = require('../models/SystemLog');
 const Message = require('../models/Message');
+const Conversation = require('../models/Conversation');
+const AiInteractionLog = require('../models/AiInteractionLog');
+const Progress = require('../models/Progress');
+const Enrollment = require('../models/Enrollment');
+const PracticeSession = require('../models/PracticeSession');
+const SpeechAssessment = require('../models/SpeechAssessment');
+const Notification = require('../models/Notification');
 const { successResponse, createPagination } = require('../utils/helpers');
 const bcrypt = require('bcrypt');
 const PDFDocument = require("pdfkit-table");
+const mongoose = require('mongoose');
 
 /**
  * Get all users with filters and pagination
@@ -136,35 +144,68 @@ const updateUser = async (req, res, next) => {
  * DELETE /api/admin/users/:id
  */
 const deleteUser = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    
     try {
-        const user = await User.findByIdAndDelete(req.params.id);
+        await session.startTransaction();
+        
+        const user = await User.findById(req.params.id).session(session);
 
         if (!user) {
+            await session.abortTransaction();
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
             });
         }
 
+        // Delete role-specific data with cascade
         if (user.role === 'student') {
-            await Student.findOneAndDelete({ userId: user._id });
+            const student = await Student.findOne({ userId: user._id }).session(session);
+            
+            if (student) {
+                // Delete all related student data using transactions
+                await Promise.all([
+                    Conversation.deleteMany({ studentId: student._id }).session(session),
+                    AiInteractionLog.deleteMany({ studentId: student._id }).session(session),
+                    Progress.deleteMany({ studentId: student._id }).session(session),
+                    Enrollment.deleteMany({ studentId: student._id }).session(session),
+                    PracticeSession.deleteMany({ studentId: student._id }).session(session),
+                    SpeakingSubmission.deleteMany({ studentId: student._id }).session(session),
+                    SpeechAssessment.deleteMany({ studentId: student._id }).session(session),
+                    Notification.deleteMany({ userId: user._id }).session(session)
+                ]);
+                
+                // Delete student document
+                await Student.findByIdAndDelete(student._id).session(session);
+            }
         } else if (user.role === 'teacher') {
-            await Teacher.findOneAndDelete({ userId: user._id });
+            await Teacher.findOneAndDelete({ userId: user._id }).session(session);
         }
+        
+        // Delete user document
+        await User.findByIdAndDelete(user._id).session(session);
 
-        await SystemLog.create({
+        // Log the deletion
+        await SystemLog.create([{
             userId: req.user._id,
-            action: `Deleted user: ${user.email}`,
+            action: `Deleted user: ${user.email} (Role: ${user.role})`,
             method: 'DELETE',
             endpoint: `/api/admin/users/${req.params.id}`,
             status: 200,
             ip: req.ip,
             userAgent: req.headers['user-agent']
-        });
+        }], { session });
+        
+        await session.commitTransaction();
 
-        return successResponse(res, 200, 'User deleted successfully', null);
+        return successResponse(res, 200, 'User and all related data deleted successfully', null);
     } catch (error) {
+        await session.abortTransaction();
+        console.error('Delete user error:', error);
         next(error);
+    } finally {
+        session.endSession();
     }
 };
 
@@ -1046,11 +1087,101 @@ const exportFacultyReport = async (req, res, next) => {
     }
 };
 
+/**
+ * Delete student with cascade deletion (Production-Ready)
+ * DELETE /api/admin/students/:id
+ */
+const deleteStudent = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    
+    try {
+        await session.startTransaction();
+        
+        const student = await Student.findById(req.params.id).session(session);
+
+        if (!student) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        const userId = student.userId;
+        const studentId = student._id;
+        
+        // Get user info before deletion for logging
+        const user = await User.findById(userId).session(session);
+        const userEmail = user?.email || 'Unknown';
+        
+        console.log(`🗑️ Starting cascade deletion for student: ${userEmail} (ID: ${studentId})`);
+        
+        // Delete all related student data with proper error handling
+        const deletionResults = await Promise.allSettled([
+            Conversation.deleteMany({ studentId }).session(session),
+            AiInteractionLog.deleteMany({ studentId }).session(session),
+            Progress.deleteMany({ studentId }).session(session),
+            Enrollment.deleteMany({ studentId }).session(session),
+            PracticeSession.deleteMany({ studentId }).session(session),
+            SpeakingSubmission.deleteMany({ studentId }).session(session),
+            SpeechAssessment.deleteMany({ studentId }).session(session),
+            Notification.deleteMany({ userId }).session(session),
+            Payment.deleteMany({ userId }).session(session)
+        ]);
+        
+        // Log deletion counts
+        const collections = ['Conversations', 'AiInteractionLogs', 'Progress', 'Enrollments', 
+                           'PracticeSessions', 'SpeakingSubmissions', 'SpeechAssessments', 
+                           'Notifications', 'Payments'];
+        deletionResults.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                console.log(`✅ Deleted ${result.value.deletedCount} ${collections[index]}`);
+            } else {
+                console.error(`❌ Failed to delete ${collections[index]}:`, result.reason);
+            }
+        });
+        
+        // Delete student document
+        await Student.findByIdAndDelete(studentId).session(session);
+        console.log(`✅ Deleted Student document`);
+        
+        // Delete user document (prevents login)
+        await User.findByIdAndDelete(userId).session(session);
+        console.log(`✅ Deleted User document`);
+
+        // Log the deletion
+        await SystemLog.create([{
+            userId: req.user._id,
+            action: `Deleted student: ${userEmail} (ID: ${studentId}) and all related data`,
+            method: 'DELETE',
+            endpoint: `/api/admin/students/${req.params.id}`,
+            status: 200,
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        }], { session });
+        
+        await session.commitTransaction();
+        console.log(`✅ Transaction committed successfully for ${userEmail}`);
+
+        return successResponse(res, 200, 'Student and all related data deleted successfully', {
+            deletedStudent: userEmail,
+            deletedCollections: collections.length
+        });
+    } catch (error) {
+        await session.abortTransaction();
+        console.error('❌ Delete student transaction failed:', error);
+        next(error);
+    } finally {
+        session.endSession();
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserDetails,
     updateUser,
     deleteUser,
+    deleteStudent,
     resetUserPassword,
     suspendUser,
     activateUser,

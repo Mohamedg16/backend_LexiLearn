@@ -147,6 +147,9 @@ studentSchema.methods.addAchievement = function (badgeName, badgeIcon, descripti
     return false;
 };
 
+// Note: Cascade deletion is handled in adminController.deleteStudent() using MongoDB transactions
+// This ensures atomic deletion of all related data across multiple collections
+
 const Student = mongoose.model('Student', studentSchema);
 
 module.exports = Student;

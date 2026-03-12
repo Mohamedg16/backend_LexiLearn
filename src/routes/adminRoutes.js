@@ -28,6 +28,7 @@ router.patch('/users/:id/activate', adminController.activateUser);
 
 // Student Management
 router.get('/students', adminController.getAllStudents);
+router.delete('/students/:id', adminController.deleteStudent);
 router.patch('/students/:id/payment-status', adminController.updateStudentPaymentStatus);
 
 // Teacher Management

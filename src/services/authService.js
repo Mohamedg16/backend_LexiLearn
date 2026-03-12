@@ -115,22 +115,49 @@ const verifyOtp = async (email, otp) => {
 };
 
 /**
- * Login user
+ * Login user with enhanced validation
  */
 const loginUser = async (email, password) => {
     const user = await User.findOne({ email }).select('+password');
 
-    if (!user) throw new Error('Invalid email or password');
-    if (!user.isActive) throw new Error('Account is suspended.');
-    // Check for email verification REMOVED as requested
+    if (!user) {
+        console.log(`❌ Login failed: User not found for email ${email}`);
+        throw new Error('Invalid email or password');
+    }
+    
+    // CRITICAL: Prevent deleted/suspended users from logging in
+    if (!user.isActive) {
+        console.log(`❌ Login blocked: Account suspended or deleted for ${email}`);
+        throw new Error('Account is suspended or no longer exists.');
+    }
+    
+    // CRITICAL: Verify role-specific profile exists (prevents orphaned user accounts)
+    if (user.role === 'student') {
+        const studentProfile = await Student.findOne({ userId: user._id });
+        if (!studentProfile) {
+            console.log(`❌ Login blocked: Student profile missing for ${email}`);
+            throw new Error('Account no longer exists. Please contact support.');
+        }
+    } else if (user.role === 'teacher') {
+        const teacherProfile = await Teacher.findOne({ userId: user._id });
+        if (!teacherProfile) {
+            console.log(`❌ Login blocked: Teacher profile missing for ${email}`);
+            throw new Error('Account no longer exists. Please contact support.');
+        }
+    }
 
     const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) throw new Error('Invalid email or password');
+    if (!isPasswordValid) {
+        console.log(`❌ Login failed: Invalid password for ${email}`);
+        throw new Error('Invalid email or password');
+    }
 
     const tokens = generateTokens(user._id, user.role);
     user.lastLogin = new Date();
     user.refreshToken = tokens.refreshToken;
     await user.save();
+    
+    console.log(`✅ Login successful for ${email} (${user.role})`);
 
     return {
         user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role, profilePicture: user.getProfilePictureUrl() },
@@ -184,11 +211,30 @@ const resetPassword = async (email, otp, newPassword) => {
 };
 
 /**
- * Refresh access token
+ * Refresh access token with validation
  */
 const refreshAccessToken = async (userId) => {
     const user = await User.findById(userId);
-    if (!user || !user.isActive) throw new Error('User not found or inactive');
+    
+    if (!user || !user.isActive) {
+        console.log(`❌ Token refresh blocked: User not found or inactive (ID: ${userId})`);
+        throw new Error('User not found or inactive');
+    }
+    
+    // Verify role-specific profile still exists
+    if (user.role === 'student') {
+        const studentProfile = await Student.findOne({ userId: user._id });
+        if (!studentProfile) {
+            console.log(`❌ Token refresh blocked: Student profile missing (ID: ${userId})`);
+            throw new Error('Account no longer exists');
+        }
+    } else if (user.role === 'teacher') {
+        const teacherProfile = await Teacher.findOne({ userId: user._id });
+        if (!teacherProfile) {
+            console.log(`❌ Token refresh blocked: Teacher profile missing (ID: ${userId})`);
+            throw new Error('Account no longer exists');
+        }
+    }
 
     const { generateAccessToken } = require('../config/jwt');
     const accessToken = generateAccessToken(user._id, user.role);
