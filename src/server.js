@@ -106,17 +106,31 @@ app.use(cors(corsOptions));
 // Handle preflight OPTIONS requests explicitly
 app.options('*', cors(corsOptions));
 
-// Additional CORS headers for all responses
+// CRITICAL: Global CORS headers middleware - runs on EVERY request
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     
-    // Set CORS headers for allowed origins
-    if (origin && (allowedOrigins.includes(origin) || origin.includes('.onrender.com'))) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-        res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    console.log(`📨 Request: ${req.method} ${req.url} from origin: ${origin || 'no-origin'}`);
+    
+    // ALWAYS set CORS headers for allowed origins
+    if (origin) {
+        if (allowedOrigins.includes(origin) || origin.includes('.onrender.com') || origin.includes('localhost')) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+            res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie, Authorization');
+            res.setHeader('Access-Control-Max-Age', '86400');
+            console.log(`✅ CORS headers set for origin: ${origin}`);
+        } else {
+            console.log(`⚠️  Origin not in allowed list: ${origin}`);
+        }
+    }
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        console.log(`✅ Preflight request handled for ${req.url}`);
+        return res.status(200).end();
     }
     
     // Allow cross-origin resource loading (for media files)
@@ -129,13 +143,16 @@ app.use((req, res, next) => {
 console.log('✅ CORS middleware configured successfully');
 
 // ============================================================================
-// SECURITY MIDDLEWARE - AFTER CORS
+// SECURITY MIDDLEWARE - AFTER CORS (with minimal restrictions)
 // ============================================================================
 
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false // Disable CSP to avoid blocking cross-origin requests
+    crossOriginOpenerPolicy: false,
+    contentSecurityPolicy: false, // Disable CSP completely
+    originAgentCluster: false,
+    strictTransportSecurity: false // Disable HSTS for now
 }));
 
 // Serve static files from uploads directory - IMPORTANT: Matches the file return path
