@@ -213,20 +213,28 @@ const getPayments = async (req, res, next) => {
 };
 
 /**
- * Get analytics for teacher's students
+ * Get analytics for teacher's students - OPTIMIZED
  * GET /api/teachers/analytics
  */
 const getAnalytics = async (req, res, next) => {
     try {
+        console.log('📊 Fetching analytics...');
+        
         const teacher = await Teacher.findOne({ userId: req.user._id }).select('students').lean();
-        if (!teacher) return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+        if (!teacher) {
+            console.log('❌ Teacher profile not found');
+            return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+        }
 
         const studentIds = teacher.students || [];
+        console.log(`✅ Analyzing ${studentIds.length} students`);
 
-        // Aggregate speaking stats in one go
+        // Optimize: Use aggregation with limits
         const [overviewData, dailyActivityData] = await Promise.all([
             SpeakingSubmission.aggregate([
                 { $match: { studentId: { $in: studentIds } } },
+                { $sort: { createdAt: -1 } },
+                { $limit: 100 }, // Only analyze recent 100 submissions
                 {
                     $group: {
                         _id: null,
@@ -247,7 +255,7 @@ const getAnalytics = async (req, res, next) => {
                     }
                 }
             ]),
-            // Optimize daily activity with a single aggregation
+            // Optimize daily activity
             (async () => {
                 const sevenDaysAgo = new Date();
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
@@ -269,13 +277,11 @@ const getAnalytics = async (req, res, next) => {
                     { $sort: { "_id": 1 } }
                 ]);
 
-                // Fill in gaps for days with zero submissions
+                // Fill in gaps
                 const daily = [];
                 for (let i = 6; i >= 0; i--) {
                     const date = new Date();
                     date.setDate(date.getDate() - i);
-
-                    // Format as YYYY-MM-DD in local time
                     const year = date.getFullYear();
                     const month = String(date.getMonth() + 1).padStart(2, '0');
                     const day = String(date.getDate()).padStart(2, '0');
@@ -292,7 +298,15 @@ const getAnalytics = async (req, res, next) => {
             })()
         ]);
 
-        const overview = overviewData[0] || { totalAssessments: 0, avgSophistication: 0, avgDiversity: 0, avgDensity: 0 };
+        const overview = overviewData[0] || { 
+            totalAssessments: 0, 
+            avgSophistication: 0, 
+            avgDiversity: 0, 
+            avgDensity: 0,
+            activeCohortCount: 0
+        };
+
+        console.log(`✅ Analytics: ${overview.totalAssessments} assessments, ${overview.activeCohortCount} active students`);
 
         return successResponse(res, 200, 'Analytics retrieved', {
             overview: {
@@ -305,6 +319,7 @@ const getAnalytics = async (req, res, next) => {
             interactionFrequency: dailyActivityData
         });
     } catch (error) {
+        console.error('❌ Error fetching analytics:', error);
         next(error);
     }
 };
@@ -445,21 +460,43 @@ const exportAiReport = async (req, res, next) => {
 };
 
 /**
- * Get all speech assessments for teacher's students
+ * Get all speech assessments for teacher's students - OPTIMIZED
  * GET /api/teachers/assessments
  */
 const getSpeechAssessments = async (req, res, next) => {
     try {
-        const assessments = await SpeakingSubmission.find()
+        console.log('📊 Fetching speech assessments...');
+        
+        // Get teacher's students first
+        const teacher = await Teacher.findOne({ userId: req.user._id }).select('students').lean();
+        
+        if (!teacher) {
+            console.log('❌ Teacher profile not found');
+            return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+        }
+
+        const studentIds = teacher.students || [];
+        console.log(`✅ Teacher has ${studentIds.length} students`);
+
+        // Fetch assessments ONLY for teacher's students
+        const assessments = await SpeakingSubmission.find({
+            studentId: { $in: studentIds }
+        })
+            .select('-audioUrl -transcription') // Exclude heavy fields
             .populate({
                 path: 'studentId',
+                select: 'userId',
                 populate: { path: 'userId', select: 'fullName email profilePicture' }
             })
             .sort({ createdAt: -1 })
+            .limit(50) // Limit to recent 50 assessments
             .lean();
+
+        console.log(`✅ Found ${assessments.length} assessments`);
 
         return successResponse(res, 200, 'Assessments retrieved', assessments);
     } catch (error) {
+        console.error('❌ Error fetching assessments:', error);
         next(error);
     }
 };

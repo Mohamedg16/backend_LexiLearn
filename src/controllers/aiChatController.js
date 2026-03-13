@@ -270,54 +270,80 @@ const deleteConversation = async (req, res, next) => {
 };
 
 /**
- * Get all student conversations (Teacher/Admin)
+ * Get all student conversations (Teacher/Admin) - OPTIMIZED
+ * Excludes heavy Base64 audio data to prevent memory issues
  */
 const getAllStudentConversations = async (req, res, next) => {
     try {
+        console.log('📊 Fetching all student conversations (optimized)...');
+        
+        // Fetch conversations WITHOUT audioBase64 to reduce payload size
         const [conversations, submissions] = await Promise.all([
-            Conversation.find().populate({
-                path: 'studentId',
-                select: 'userId',
-                populate: { path: 'userId', select: 'name email fullName' }
-            }).lean(),
-            SpeakingSubmission.find().populate({
-                path: 'studentId',
-                select: 'userId',
-                populate: { path: 'userId', select: 'name email fullName' }
-            }).populate('conversationId').lean()
+            Conversation.find()
+                .select('-messages.audioBase64') // CRITICAL: Exclude Base64 audio
+                .populate({
+                    path: 'studentId',
+                    select: 'userId',
+                    populate: { path: 'userId', select: 'fullName email' }
+                })
+                .sort({ updatedAt: -1 })
+                .limit(100) // Limit to recent 100 conversations
+                .lean(),
+            SpeakingSubmission.find()
+                .select('-audioUrl -transcription') // Exclude heavy fields
+                .populate({
+                    path: 'studentId',
+                    select: 'userId',
+                    populate: { path: 'userId', select: 'fullName email' }
+                })
+                .sort({ createdAt: -1 })
+                .limit(100) // Limit to recent 100 submissions
+                .lean()
         ]);
 
+        console.log(`✅ Found ${conversations.length} conversations and ${submissions.length} submissions`);
+
+        // Create lightweight chat logs
         const chatLogs = conversations.map(c => {
-            const lastAssistantMsg = c.messages?.slice().reverse().find(m => m.role === 'assistant');
+            const messageCount = c.messages ? c.messages.length : 0;
+            const lastMessage = c.messages && c.messages.length > 0 
+                ? c.messages[c.messages.length - 1].content.substring(0, 100) 
+                : 'No messages';
+            
             return {
                 _id: c._id,
                 type: 'chat',
                 student: c.studentId,
                 title: c.title || 'General Chat',
-                preview: c.messages && c.messages.length > 0 ? c.messages[c.messages.length - 1].content : '',
-                messageCount: c.messages ? c.messages.length : 0,
+                preview: lastMessage,
+                messageCount: messageCount,
                 date: c.updatedAt,
-                ai_feedback: c.finalReport || (lastAssistantMsg ? lastAssistantMsg.content : 'No feedback available'),
-                details: c
+                hasAudio: false // Don't check to save processing
             };
         });
 
+        // Create lightweight voice logs
         const voiceLogs = submissions.map(s => ({
             _id: s._id,
             type: 'voice',
             student: s.studentId,
             title: s.topic || 'Speaking Practice',
-            preview: s.transcription ? s.transcription.substring(0, 50) + '...' : 'Audio Submission',
+            preview: 'Audio Submission',
             messageCount: 1,
             date: s.createdAt,
-            ai_feedback: s.advice || 'No detailed feedback available',
-            details: s
+            wordCount: s.wordCount,
+            lexicalDiversity: s.lexicalDiversity
         }));
 
-        const combinedLogs = [...chatLogs, ...voiceLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const combinedLogs = [...chatLogs, ...voiceLogs]
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .slice(0, 50); // Return only top 50 most recent
 
-        return successResponse(res, 200, 'All student AI interactions retrieved', combinedLogs);
+        console.log(`✅ Returning ${combinedLogs.length} combined logs`);
+
+        return successResponse(res, 200, 'Student interactions retrieved', combinedLogs);
     } catch (error) {
+        console.error('❌ Error fetching conversations:', error);
         next(error);
     }
 };
