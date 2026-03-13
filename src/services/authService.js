@@ -132,6 +132,7 @@ const loginUser = async (email, password) => {
     }
     
     // CRITICAL: Verify role-specific profile exists (prevents orphaned user accounts)
+    // Skip profile check for admin users
     if (user.role === 'student') {
         const studentProfile = await Student.findOne({ userId: user._id });
         if (!studentProfile) {
@@ -145,6 +146,7 @@ const loginUser = async (email, password) => {
             throw new Error('Account no longer exists. Please contact support.');
         }
     }
+    // Admin users don't need a separate profile
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
@@ -221,7 +223,7 @@ const refreshAccessToken = async (userId) => {
         throw new Error('User not found or inactive');
     }
     
-    // Verify role-specific profile still exists
+    // Verify role-specific profile still exists (skip for admin)
     if (user.role === 'student') {
         const studentProfile = await Student.findOne({ userId: user._id });
         if (!studentProfile) {
@@ -235,6 +237,7 @@ const refreshAccessToken = async (userId) => {
             throw new Error('Account no longer exists');
         }
     }
+    // Admin users don't need profile verification
 
     const { generateAccessToken } = require('../config/jwt');
     const accessToken = generateAccessToken(user._id, user.role);
