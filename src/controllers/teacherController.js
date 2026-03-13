@@ -213,28 +213,18 @@ const getPayments = async (req, res, next) => {
 };
 
 /**
- * Get analytics for teacher's students - OPTIMIZED
+ * Get analytics for ALL students - OPTIMIZED
  * GET /api/teachers/analytics
  */
 const getAnalytics = async (req, res, next) => {
     try {
-        console.log('📊 Fetching analytics...');
-        
-        const teacher = await Teacher.findOne({ userId: req.user._id }).select('students').lean();
-        if (!teacher) {
-            console.log('❌ Teacher profile not found');
-            return res.status(404).json({ success: false, message: 'Teacher profile not found' });
-        }
+        console.log('📊 Fetching analytics for all students...');
 
-        const studentIds = teacher.students || [];
-        console.log(`✅ Analyzing ${studentIds.length} students`);
-
-        // Optimize: Use aggregation with limits
+        // Optimize: Use aggregation with limits for ALL students
         const [overviewData, dailyActivityData] = await Promise.all([
             SpeakingSubmission.aggregate([
-                { $match: { studentId: { $in: studentIds } } },
                 { $sort: { createdAt: -1 } },
-                { $limit: 100 }, // Only analyze recent 100 submissions
+                { $limit: 200 }, // Only analyze recent 200 submissions
                 {
                     $group: {
                         _id: null,
@@ -264,7 +254,6 @@ const getAnalytics = async (req, res, next) => {
                 const stats = await SpeakingSubmission.aggregate([
                     {
                         $match: {
-                            studentId: { $in: studentIds },
                             createdAt: { $gte: sevenDaysAgo }
                         }
                     },
@@ -325,7 +314,7 @@ const getAnalytics = async (req, res, next) => {
 };
 
 /**
- * Optimized Init Endpoint
+ * Optimized Init Endpoint - Shows ALL students
  * GET /api/teachers/init
  */
 const getInitData = async (req, res, next) => {
@@ -334,13 +323,24 @@ const getInitData = async (req, res, next) => {
             .populate('assignedModules', 'title category level')
             .lean();
 
-        if (!teacher) return res.status(404).json({ success: false, message: 'Teacher profile not found' });
+        if (!teacher) {
+            // Create teacher profile if doesn't exist
+            const newTeacher = new Teacher({
+                userId: req.user._id,
+                students: [],
+                assignedModules: [],
+                totalTeachingHours: 0,
+                totalEarnings: 0,
+                pendingPayment: 0
+            });
+            await newTeacher.save();
+        }
 
-        const studentIds = teacher.students || [];
+        // Get ALL students count
+        const allStudentsCount = await Student.countDocuments();
 
         const [dbStats, activeTasks, recentSubmissions] = await Promise.all([
             SpeakingSubmission.aggregate([
-                { $match: { studentId: { $in: studentIds } } },
                 {
                     $group: {
                         _id: null,
@@ -358,7 +358,7 @@ const getInitData = async (req, res, next) => {
                 }
             ]),
             Task.find({ isActive: true }).select('title timeLimit timePoint').lean(),
-            SpeakingSubmission.find({ studentId: { $in: studentIds } })
+            SpeakingSubmission.find({})
                 .sort({ createdAt: -1 })
                 .limit(5)
                 .select('studentId topic wordCount lexicalDiversity createdAt')
@@ -373,11 +373,11 @@ const getInitData = async (req, res, next) => {
         const statsResult = dbStats[0] || { count: 0, avgDiversity: 0, uniqueCount: 0 };
 
         const stats = {
-            totalTeachingHours: teacher.totalTeachingHours,
-            totalEarnings: teacher.totalEarnings,
-            pendingPayment: teacher.pendingPayment,
-            assignedModulesCount: teacher.assignedModules.length,
-            studentsCount: studentIds.length,
+            totalTeachingHours: teacher?.totalTeachingHours || 0,
+            totalEarnings: teacher?.totalEarnings || 0,
+            pendingPayment: teacher?.pendingPayment || 0,
+            assignedModulesCount: teacher?.assignedModules?.length || 0,
+            studentsCount: allStudentsCount,
             speakingSessionsCount: statsResult.count,
             activeTasksCount: activeTasks.length,
             avgLexicalDiversity: parseFloat((statsResult.avgDiversity || 0).toFixed(1)),
@@ -460,28 +460,15 @@ const exportAiReport = async (req, res, next) => {
 };
 
 /**
- * Get all speech assessments for teacher's students - OPTIMIZED
+ * Get all speech assessments for ALL students (not just assigned)
  * GET /api/teachers/assessments
  */
 const getSpeechAssessments = async (req, res, next) => {
     try {
-        console.log('📊 Fetching speech assessments...');
+        console.log('📊 Fetching all speech assessments for teacher...');
         
-        // Get teacher's students first
-        const teacher = await Teacher.findOne({ userId: req.user._id }).select('students').lean();
-        
-        if (!teacher) {
-            console.log('❌ Teacher profile not found');
-            return res.status(404).json({ success: false, message: 'Teacher profile not found' });
-        }
-
-        const studentIds = teacher.students || [];
-        console.log(`✅ Teacher has ${studentIds.length} students`);
-
-        // Fetch assessments ONLY for teacher's students
-        const assessments = await SpeakingSubmission.find({
-            studentId: { $in: studentIds }
-        })
+        // Fetch ALL assessments from ALL students
+        const assessments = await SpeakingSubmission.find({})
             .select('-audioUrl -transcription') // Exclude heavy fields
             .populate({
                 path: 'studentId',
@@ -489,7 +476,7 @@ const getSpeechAssessments = async (req, res, next) => {
                 populate: { path: 'userId', select: 'fullName email profilePicture' }
             })
             .sort({ createdAt: -1 })
-            .limit(50) // Limit to recent 50 assessments
+            .limit(100) // Limit to recent 100 assessments
             .lean();
 
         console.log(`✅ Found ${assessments.length} assessments`);
