@@ -280,22 +280,23 @@ const getAllStudentConversations = async (req, res, next) => {
         // Fetch conversations WITHOUT audioBase64 to reduce payload size
         const [conversations, submissions] = await Promise.all([
             Conversation.find()
-                .select('-messages.audioBase64') // CRITICAL: Exclude Base64 audio
+                .select('-messages.audioBase64') // CRITICAL: Exclude Base64 audio from messages
                 .populate({
                     path: 'studentId',
                     select: 'userId',
-                    populate: { path: 'userId', select: 'fullName email' }
+                    populate: { path: 'userId', select: 'fullName name email' }
                 })
                 .sort({ updatedAt: -1 })
                 .limit(100) // Limit to recent 100 conversations
                 .lean(),
             SpeakingSubmission.find()
-                .select('-audioUrl -transcription') // Exclude heavy fields
+                .select('studentId topic createdAt wordCount lexicalDiversity lexicalSophistication lexicalDensity advice transcription audioBase64 conversationId') // Include needed fields
                 .populate({
                     path: 'studentId',
                     select: 'userId',
-                    populate: { path: 'userId', select: 'fullName email' }
+                    populate: { path: 'userId', select: 'fullName name email' }
                 })
+                .populate('conversationId') // Populate conversation for Phase 1 data
                 .sort({ createdAt: -1 })
                 .limit(100) // Limit to recent 100 submissions
                 .lean()
@@ -318,11 +319,16 @@ const getAllStudentConversations = async (req, res, next) => {
                 preview: lastMessage,
                 messageCount: messageCount,
                 date: c.updatedAt,
-                hasAudio: false // Don't check to save processing
+                hasAudio: false,
+                ai_feedback: c.finalReport || null, // Include AI feedback
+                details: {
+                    messages: c.messages || [],
+                    finalReport: c.finalReport || null
+                }
             };
         });
 
-        // Create lightweight voice logs
+        // Create lightweight voice logs with full details
         const voiceLogs = submissions.map(s => ({
             _id: s._id,
             type: 'voice',
@@ -332,7 +338,17 @@ const getAllStudentConversations = async (req, res, next) => {
             messageCount: 1,
             date: s.createdAt,
             wordCount: s.wordCount,
-            lexicalDiversity: s.lexicalDiversity
+            lexicalDiversity: s.lexicalDiversity,
+            ai_feedback: s.advice || null, // Include AI feedback
+            details: {
+                transcription: s.transcription || '',
+                audioUrl: s.audioBase64 ? `data:audio/webm;base64,${s.audioBase64}` : null,
+                advice: s.advice || null,
+                conversationId: s.conversationId || null,
+                lexicalDiversity: s.lexicalDiversity,
+                lexicalSophistication: s.lexicalSophistication,
+                lexicalDensity: s.lexicalDensity
+            }
         }));
 
         const combinedLogs = [...chatLogs, ...voiceLogs]
